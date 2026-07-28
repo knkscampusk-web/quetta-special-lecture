@@ -53,16 +53,25 @@ export function buildSessions({ startDate, weekday, count, excepts = new Map(), 
   return rows;
 }
 
-/** 환불 예상액. 전액 = 총액, 1회수강 = 총액 − (교습비/총회차) − (교재 수령 시 교재비) */
+/** 기준일까지 실제로 진행된 수업 횟수 (휴강 제외) */
+export function sessionsTaken(course, asOf = iso(new Date())) {
+  return (course?.sessions || []).filter((s) => !s.canceled && s.date <= asOf).length;
+}
+
+/** 진행 회차 → 환불유형 문자열 */
+export const refundTypeFor = (n) => (n <= 0 ? "전액" : `${n}회수강`);
+
+/** 환불 예상액. 전액 = 총액, N회수강 = 총액 − (교습비/총회차 × N) − (교재 수령 시 교재비) */
 export function refundAmount(course, refund) {
-  if (!course?.fee) return null;
+  if (!course?.fee || !refund) return null;
   const total = course.fee.total ?? ((course.fee.tuition || 0) + (course.fee.book || 0));
-  if (!refund) return null;
   if (refund.type === "전액") return total;
+  const m = String(refund.type || "").match(/(\d+)\s*회/);
+  const used = m ? Number(m[1]) : 1;
   const n = (course.sessions || []).length || 1;
   const perSession = Math.round((course.fee.tuition || 0) / n);
   const bookKeep = refund.bookRefund === "수령" ? (course.fee.book || 0) : 0;
-  return Math.max(total - perSession - bookKeep, 0);
+  return Math.max(total - perSession * used - bookKeep, 0);
 }
 
 // ── 집계 ────────────────────────────────────────────────────────
