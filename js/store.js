@@ -91,17 +91,24 @@ export async function bulkSet(colName, rows) {
   return rows.length;
 }
 
-/** 대기자 → 수강생 승계 */
-export async function promoteWait(wait) {
-  if (!wait.courseId) throw new Error("연결된 강좌가 없습니다. 강좌를 먼저 지정하세요.");
-  const id = `${wait.studentId}__${wait.courseId}`;
+/** 대기자 → 특강학생명단 배정 */
+export async function assignWait(wait, { courseId, startSession = 1, status = "신청", payer = null }) {
+  if (!courseId) throw new Error("연결된 강좌가 없습니다. 강좌를 먼저 지정하세요.");
+  const term = wait.term || null;
+  const id = `${wait.studentId}__${courseId}`;
   const b = writeBatch(db);
   b.set(doc(db, "enrollments", id), {
-    id, studentId: wait.studentId, courseId: wait.courseId,
-    term: wait.term || null, payer: null, paidAt: null,
-    status: "미결제", refund: null, source: "waitlist", ...stamp(),
+    id, studentId: wait.studentId, courseId, term,
+    payer, paidAt: status === "수강" ? new Date().toISOString().slice(0, 10) : null,
+    startSession, status, refund: null, canceledAt: null, source: "waitlist", ...stamp(),
   }, { merge: true });
-  b.set(doc(db, "waitlist", wait.id), { state: "배정", ...stamp() }, { merge: true });
+  b.set(doc(db, "waitlist", wait.id), { state: "배정", assignedAt: new Date().toISOString().slice(0, 10), ...stamp() }, { merge: true });
+  if (wait.name) {
+    b.set(doc(db, "students", wait.studentId), {
+      id: wait.studentId, name: wait.name,
+      classGroup: wait.classGroup || null, ...stamp(),
+    }, { merge: true });
+  }
   await b.commit();
   return id;
 }
