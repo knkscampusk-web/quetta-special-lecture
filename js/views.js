@@ -176,6 +176,7 @@ export function viewStudents() {
   <div class="page-head">
     <div><h1>특강학생명단</h1><p>학생 × 강좌 단위로 조회합니다. 총 ${rows.length}건.</p></div>
     <div class="toolbar">
+      <button class="btn btn-pri" id="add"><i data-lucide="plus"></i>신청 추가</button>
       <button class="btn" id="upload"><i data-lucide="upload"></i>신청명단 불러오기</button>
       <button class="btn" id="xlsx"><i data-lucide="download"></i>엑셀파일로 저장</button>
     </div>
@@ -211,6 +212,7 @@ export function viewStudents() {
   $("#q").oninput = (ev) => { q = ev.target.value; render("students"); $("#q").focus(); };
   $("#st").onchange = (ev) => { statusFilter = ev.target.value; render("students"); };
   $("#cf").onchange = (ev) => { courseFilter = ev.target.value; render("students"); };
+  $("#add").onclick = () => addEnrollDrawer();
   $("#xlsx").onclick = (ev) => exportExcel(rows, ev.currentTarget);
   $("#upload").onclick = openRosterUpload;
   host().querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", async (ev) => {
@@ -255,6 +257,126 @@ function studentDrawer(sid) {
       <div class="tbl-wrap"><table class="tbl"><tbody>${ws.map((w) =>
         `<tr><td>${esc(w.courseTitle)}</td><td><span class="tag tag-neutral">${esc(w.state)}</span></td></tr>`).join("")}
       </tbody></table></div>` : ""}`);
+}
+
+function addEnrollDrawer(preCourseId = courseFilter) {
+  const courses = S.state.courses.slice()
+    .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term)
+      || String(a.subject).localeCompare(b.subject));
+  const today = C.iso(new Date());
+
+  const d = drawer("신청 추가", "학번을 입력하면 등록된 학생을 자동으로 찾습니다", `
+    <label class="field"><span>강좌</span>
+      <select class="inp" id="a-course" style="width:100%">
+        <option value="">— 선택 —</option>
+        ${courses.map((c) => `<option value="${esc(c.id)}" ${c.id === preCourseId ? "selected" : ""}>
+          [${esc(c.term)}] ${esc(c.title)}${c.teachers?.length ? ` · ${esc(c.teachers.join(","))}` : ""}</option>`).join("")}
+      </select></label>
+
+    <label class="field"><span>학번</span>
+      <input class="inp" id="a-sid" style="width:100%" inputmode="numeric" placeholder="예: 5139" autocomplete="off"></label>
+    <div id="a-who" style="margin:-6px 0 14px;font-size:13px"></div>
+
+    <div id="a-new" hidden>
+      <div class="banner banner-warn" style="margin-bottom:12px"><i data-lucide="user-plus"></i>
+        <div>등록되지 않은 학번입니다. 아래 정보로 학생을 새로 만듭니다.</div></div>
+      <label class="field"><span>성명</span><input class="inp" id="a-name" style="width:100%" autocomplete="off"></label>
+      <label class="field"><span>반</span><input class="inp" id="a-class" style="width:100%" placeholder="예: N" autocomplete="off"></label>
+    </div>
+
+    <label class="field"><span>결제주체</span>
+      <select class="inp" id="a-payer" style="width:100%">
+        <option value="">미정</option><option>학부모</option><option>학생</option><option>학부모+학생</option>
+      </select></label>
+    <label class="field"><span>결제 상태</span>
+      <select class="inp" id="a-status" style="width:100%">
+        <option value="미결제">미결제</option><option value="결제완료">결제완료</option>
+      </select></label>
+    <label class="field" id="a-paidwrap" hidden><span>결제일</span>
+      <input class="inp" type="date" id="a-paid" value="${today}" style="width:100%"></label>
+
+    <div id="a-warn" style="margin-bottom:12px"></div>
+    <button class="btn btn-pri" id="a-go" style="width:100%;justify-content:center">추가하기</button>
+    <div id="a-log" class="log" style="margin-top:16px;font-size:13px;color:var(--muted)"></div>`);
+
+  const el = (s) => $(s, d);
+  const added = [];
+
+  const lookup = () => {
+    const sid = el("#a-sid").value.trim();
+    const who = el("#a-who"), box = el("#a-new");
+    if (!sid) { who.innerHTML = ""; box.hidden = true; return null; }
+    const st = S.state.students.find((x) => x.id === sid);
+    if (st) {
+      who.innerHTML = `<span class="tag tag-teal">${esc(st.name || "이름없음")}</span>
+        <span class="dim" style="margin-left:6px">${esc(st.classGroup) || "-"}반${st.status ? ` · ${esc(st.status)}` : ""}</span>`;
+      box.hidden = true;
+    } else {
+      who.innerHTML = "";
+      box.hidden = false;
+    }
+    return st;
+  };
+
+  const checkDup = () => {
+    const sid = el("#a-sid").value.trim(), cid = el("#a-course").value;
+    const w = el("#a-warn");
+    if (!sid || !cid) { w.innerHTML = ""; return false; }
+    const dup = S.state.enrollments.find((e) => e.studentId === sid && e.courseId === cid);
+    if (!dup) { w.innerHTML = ""; return false; }
+    w.innerHTML = `<div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
+      <div>이미 이 강좌에 <b>${esc(dup.status)}</b> 상태로 등록된 학생입니다. 추가하면 상태가 덮어써집니다.</div></div>`;
+    window.lucide?.createIcons();
+    return true;
+  };
+
+  el("#a-sid").addEventListener("input", () => { lookup(); checkDup(); });
+  el("#a-course").addEventListener("change", checkDup);
+  el("#a-status").addEventListener("change", () => {
+    el("#a-paidwrap").hidden = el("#a-status").value !== "결제완료";
+  });
+
+  el("#a-go").onclick = async (ev) => {
+    const cid = el("#a-course").value;
+    const sid = el("#a-sid").value.trim();
+    const status = el("#a-status").value;
+    if (!cid) return toast("강좌를 선택하세요.");
+    if (!sid) return toast("학번을 입력하세요.");
+
+    const known = S.state.students.find((x) => x.id === sid);
+    const name = known ? known.name : el("#a-name").value.trim();
+    if (!known && !name) return toast("새 학생은 성명을 입력해야 합니다.");
+
+    const course = S.state.courses.find((x) => x.id === cid);
+    ev.target.disabled = true; ev.target.textContent = "추가하는 중…";
+    try {
+      if (!known) {
+        await S.saveStudent(sid, {
+          id: sid, name, classGroup: el("#a-class").value.trim() || null, status: "재원",
+        });
+      }
+      await S.saveEnrollment(`${sid}__${cid}`, {
+        id: `${sid}__${cid}`, studentId: sid, courseId: cid, term: course.term,
+        payer: el("#a-payer").value || null,
+        paidAt: status === "결제완료" ? el("#a-paid").value : null,
+        status, refund: null, source: "manual",
+      });
+      added.unshift(`${name} · ${course.title}`);
+      el("#a-log").innerHTML = `<b style="color:var(--ok)">추가 ${added.length}건</b><br>`
+        + added.slice(0, 6).map((t) => esc(t)).join("<br>");
+      // 연속 입력을 위해 학번만 비우고 강좌는 유지
+      el("#a-sid").value = ""; el("#a-name").value = ""; el("#a-class").value = "";
+      el("#a-who").innerHTML = ""; el("#a-new").hidden = true; el("#a-warn").innerHTML = "";
+      el("#a-sid").focus();
+      toast(`${name} 학생을 추가했습니다.`);
+    } catch (err) {
+      toast("추가하지 못했습니다: " + err.message);
+    } finally {
+      ev.target.disabled = false; ev.target.textContent = "추가하기";
+    }
+  };
+
+  el("#a-sid").focus();
 }
 
 function refundDrawer(enrollmentId) {
