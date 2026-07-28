@@ -53,9 +53,23 @@ export function buildSessions({ startDate, weekday, count, excepts = new Map(), 
   return rows;
 }
 
-/** 기준일까지 실제로 진행된 수업 횟수 (휴강 제외) */
-export function sessionsTaken(course, asOf = iso(new Date())) {
-  return (course?.sessions || []).filter((s) => !s.canceled && s.date <= asOf).length;
+// ── 상태 ────────────────────────────────────────────────────────
+// 신청 : 신청만 하고 아직 결제 전   수강 : 결제 완료, 수업 진행 중
+// 취소 : 결제 전 취소 (명단에서 숨김) 환불 : 결제 후 취소
+export const STATUSES = ["신청", "수강", "취소", "환불"];
+export const ACTIVE = ["신청", "수강"];
+
+/** 초기 적재분의 옛 표기(미결제/결제완료)를 새 표기로 변환 */
+export function normStatus(s) {
+  if (s === "결제완료") return "수강";
+  if (s === "미결제") return "신청";
+  return s || "신청";
+}
+
+/** 기준일까지 해당 학생이 실제로 들은 수업 횟수 (휴강 제외, 시작 회차 반영) */
+export function sessionsTaken(course, asOf = iso(new Date()), startNo = 1) {
+  return (course?.sessions || [])
+    .filter((s) => !s.canceled && s.date <= asOf && (s.no ?? 1) >= (startNo || 1)).length;
 }
 
 /** 진행 회차 → 환불유형 문자열 */
@@ -78,11 +92,13 @@ export function refundAmount(course, refund) {
 // ── 집계 ────────────────────────────────────────────────────────
 export function countsFor(courseId, enrollments, waitlist) {
   const es = enrollments.filter((e) => e.courseId === courseId);
+  const st = (e) => normStatus(e.status);
   return {
-    applied: es.filter((e) => e.status !== "환불").length,
-    paid: es.filter((e) => e.status === "결제완료").length,
-    unpaid: es.filter((e) => e.status === "미결제").length,
-    refunded: es.filter((e) => e.status === "환불").length,
+    active: es.filter((e) => ACTIVE.includes(st(e))).length,
+    attending: es.filter((e) => st(e) === "수강").length,
+    applied: es.filter((e) => st(e) === "신청").length,
+    canceled: es.filter((e) => st(e) === "취소").length,
+    refunded: es.filter((e) => st(e) === "환불").length,
     waiting: waitlist.filter((w) => w.courseId === courseId
       && ["유지", "무응답", "안읽음"].includes(w.state)).length,
   };
@@ -91,16 +107,18 @@ export function countsFor(courseId, enrollments, waitlist) {
 export function termSummary(term, courses, enrollments, waitlist) {
   const ids = new Set(courses.filter((c) => c.term === term).map((c) => c.id));
   const es = enrollments.filter((e) => ids.has(e.courseId));
-  const revenue = es.filter((e) => e.status === "결제완료").reduce((s, e) => {
+  const st = (e) => normStatus(e.status);
+  const revenue = es.filter((e) => st(e) === "수강").reduce((s, e) => {
     const c = courses.find((x) => x.id === e.courseId);
     return s + (c?.fee?.total || 0);
   }, 0);
   return {
     courses: ids.size,
-    applied: es.filter((e) => e.status !== "환불").length,
-    paid: es.filter((e) => e.status === "결제완료").length,
-    unpaid: es.filter((e) => e.status === "미결제").length,
-    refunded: es.filter((e) => e.status === "환불").length,
+    active: es.filter((e) => ACTIVE.includes(st(e))).length,
+    attending: es.filter((e) => st(e) === "수강").length,
+    applied: es.filter((e) => st(e) === "신청").length,
+    canceled: es.filter((e) => st(e) === "취소").length,
+    refunded: es.filter((e) => st(e) === "환불").length,
     waiting: waitlist.filter((w) => ids.has(w.courseId)
       && ["유지", "무응답", "안읽음"].includes(w.state)).length,
     revenue,
