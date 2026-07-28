@@ -166,8 +166,8 @@ export function viewStudents() {
       const hay = `${s?.name || ""} ${e.studentId} ${s?.classGroup || ""} ${c?.title || ""}`;
       return hay.toLowerCase().includes(q.toLowerCase());
     })
-    .sort((a, b) => String(a.s?.classGroup).localeCompare(String(b.s?.classGroup))
-      || String(a.s?.name).localeCompare(String(b.s?.name)));
+    .sort((a, b) => String(a.e.studentId).localeCompare(String(b.e.studentId), "ko", { numeric: true })
+      || String(a.s?.name ?? "").localeCompare(String(b.s?.name ?? ""), "ko"));
 
   const courseOpts = courses.filter((c) => !termFilter || c.term === termFilter)
     .map((c) => `<option value="${esc(c.id)}" ${courseFilter === c.id ? "selected" : ""}>${esc(c.term)} · ${esc(c.title)}</option>`).join("");
@@ -446,30 +446,44 @@ export function viewRefunds() {
       const c = S.state.courses.find((x) => x.id === e.courseId);
       return { e, c, s: S.state.students.find((x) => x.id === e.studentId), amt: C.refundAmount(c, e.refund) };
     })
-    .sort((a, b) => String(b.e.refund?.canceledAt).localeCompare(String(a.e.refund?.canceledAt)));
+    .sort((a, b) => {
+      const da = a.e.refund?.canceledAt || "", db2 = b.e.refund?.canceledAt || "";
+      if (!da !== !db2) return da ? -1 : 1;          // 취소일 없는 건은 맨 아래로
+      return da.localeCompare(db2)
+        || String(a.s?.name ?? "").localeCompare(String(b.s?.name ?? ""), "ko");
+    });
 
   const totalAmt = rows.reduce((a, r) => a + (r.amt || 0), 0);
   const full = rows.filter((r) => r.e.refund?.type === "전액").length;
-  const bookBack = rows.filter((r) => r.e.refund?.bookRefund === "환불").length;
+  const settled = rows.filter((r) => r.e.refund?.settledAt).length;
+  const pendingAmt = rows.filter((r) => !r.e.refund?.settledAt).reduce((a, r) => a + (r.amt || 0), 0);
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>환불자 명단</h1><p>환불 처리된 수강 건입니다. 총 ${rows.length}건.</p></div>
+    <div><h1>환불자 명단</h1><p>취소일 순으로 정렬됩니다. 총 ${rows.length}건${
+      rows.filter((r) => !r.e.refund?.canceledAt).length
+        ? ` · 취소일 미기재 ${rows.filter((r) => !r.e.refund?.canceledAt).length}건은 아래쪽에 표시` : ""}.</p></div>
     ${termChips(termFilter)}
   </div>
   <dl class="kpis">
     <div class="kpi alert"><dt>환불 건수</dt><dd>${rows.length}<small>건</small></dd></div>
     <div class="kpi"><dt>전액 환불</dt><dd>${full}<small>건</small></dd></div>
-    <div class="kpi"><dt>1회수강 차감</dt><dd>${rows.length - full}<small>건</small></dd></div>
-    <div class="kpi"><dt>교재 회수</dt><dd>${bookBack}<small>건</small></dd></div>
-    <div class="kpi"><dt>환불 예상액</dt><dd style="font-size:19px">${C.won(totalAmt)}</dd></div>
+    <div class="kpi"><dt>처리 완료</dt><dd>${settled}<small>건</small></dd></div>
+    <div class="kpi ${rows.length - settled ? "alert" : ""}"><dt>미처리</dt><dd>${rows.length - settled}<small>건</small></dd></div>
+    <div class="kpi"><dt>미처리 금액</dt><dd style="font-size:19px">${C.won(pendingAmt)}</dd></div>
+    <div class="kpi"><dt>환불 예상액 합계</dt><dd style="font-size:19px">${C.won(totalAmt)}</dd></div>
   </dl>
   <div class="banner banner-info"><i data-lucide="info"></i>
-    <div>환불 예상액은 <b>전액</b>이면 총액 그대로, <b>1회수강</b>이면 총액에서 1회분 교습비와 수령한 교재비를 뺀 값입니다. 실제 지급액은 원장님 결재 기준을 따르세요.</div></div>
+    <div>환불 예상액은 <b>전액</b>이면 총액 그대로, <b>N회수강</b>이면 총액에서 진행한 회차분 교습비와
+    수령한 교재비를 뺀 값입니다. 실제 지급액은 원장님 결재 기준을 따르세요.</div></div>
   <section class="card"><div class="tbl-wrap">${rows.length ? `<table class="tbl">
-    <thead><tr><th>취소일</th><th>기수</th><th>반</th><th>학번</th><th>성명</th><th>취소 강좌</th>
-      <th>환불유형</th><th>교재</th><th class="num">환불 예상액</th></tr></thead>
-    <tbody>${rows.map(({ e, c, s, amt }) => `<tr>
+    <thead><tr><th>처리</th><th>취소일</th><th>기수</th><th>반</th><th>학번</th><th>성명</th><th>취소 강좌</th>
+      <th>환불유형</th><th>교재</th><th class="num">환불 예상액</th><th>최종환불일</th></tr></thead>
+    <tbody>${rows.map(({ e, c, s, amt }) => {
+      const done = !!e.refund?.settledAt;
+      return `<tr${done ? ' style="opacity:.6"' : ""}>
+      <td><input type="checkbox" data-settle="${esc(e.id)}" ${done ? "checked" : ""}
+        aria-label="환불 처리 완료" style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal)"></td>
       <td>${e.refund?.canceledAt ? C.fmt(e.refund.canceledAt) : '<span class="dim">-</span>'}</td>
       <td><span class="tag tag-peri">${esc(e.term)}</span></td>
       <td>${esc(s?.classGroup) || "-"}</td><td class="dim">${esc(e.studentId)}</td>
@@ -478,9 +492,24 @@ export function viewRefunds() {
       <td>${e.refund?.type === "전액" ? '<span class="tag tag-danger">전액</span>'
         : `<span class="tag tag-warn">${esc(e.refund?.type) || "-"}</span>`}</td>
       <td>${esc(e.refund?.bookRefund) || '<span class="dim">-</span>'}</td>
-      <td class="num strong">${C.won(amt)}</td></tr>`).join("")}</tbody></table>`
+      <td class="num strong">${C.won(amt)}</td>
+      <td>${done ? `<span class="tag tag-ok">${C.fmt(e.refund.settledAt)}</span>`
+        : '<span class="dim">미처리</span>'}</td></tr>`;
+    }).join("")}</tbody></table>`
     : emptyBox("환불 건이 없습니다.", "")}
   </div></section>`;
+
+  host().querySelectorAll("[data-settle]").forEach((cb) => cb.addEventListener("change", async () => {
+    const e = S.state.enrollments.find((x) => x.id === cb.dataset.settle);
+    const on = cb.checked;
+    if (!on && !confirm("최종 환불일을 지웁니다. 계속할까요?")) { cb.checked = true; return; }
+    try {
+      await S.saveEnrollment(e.id, {
+        refund: { ...(e.refund || {}), settledAt: on ? C.iso(new Date()) : null },
+      });
+      toast(on ? "환불 처리 완료로 기록했습니다." : "최종 환불일을 지웠습니다.");
+    } catch (err) { toast("변경하지 못했습니다: " + err.message); cb.checked = !on; }
+  }));
 }
 
 // ════════════════════════════════════════════════════════════════
