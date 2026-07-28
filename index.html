@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>특강 MASTER · 강남대성기숙 QUETTA</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+
+<!-- 로그인 -->
+<div id="gate" class="gate">
+  <form id="gateForm" class="gate-card" autocomplete="on">
+    <p class="gate-logo">QUETTA 특강 MASTER</p>
+    <p class="gate-sub">행정실 계정으로 로그인하세요.</p>
+    <label class="field"><span>이메일</span>
+      <input type="email" id="email" required autocomplete="username" placeholder="office@example.com"></label>
+    <label class="field"><span>비밀번호</span>
+      <input type="password" id="pw" required autocomplete="current-password"></label>
+    <p id="gateMsg" class="tag tag-danger" hidden style="display:block;padding:8px 10px;margin:0 0 12px"></p>
+    <button class="btn btn-pri" style="width:100%;justify-content:center" type="submit">로그인</button>
+  </form>
+</div>
+
+<!-- 본체 -->
+<div id="shell" class="shell" hidden>
+  <nav class="side">
+    <div class="brand"><b>특강 MASTER</b><small>강남대성기숙 QUETTA</small></div>
+    <button class="nav-btn on" data-view="dashboard"><i data-lucide="layout-dashboard"></i>현황표</button>
+    <button class="nav-btn" data-view="students"><i data-lucide="users"></i>특강학생명단</button>
+    <button class="nav-btn" data-view="refunds"><i data-lucide="receipt-text"></i>환불자 명단</button>
+    <button class="nav-btn" data-view="waitlist"><i data-lucide="clock"></i>대기자 명단</button>
+    <button class="nav-btn" data-view="schedule"><i data-lucide="calendar-days"></i>수업계획·신청일정</button>
+    <button class="nav-btn" data-view="calc"><i data-lucide="calculator"></i>수업일 계산</button>
+    <div class="side-foot">
+      <p id="whoami"></p>
+      <button class="btn btn-sm" id="logout" style="width:100%;justify-content:center">로그아웃</button>
+    </div>
+  </nav>
+  <main class="main" id="view"></main>
+</div>
+
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

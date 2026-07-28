@@ -1,0 +1,103 @@
+// 수업일 · 교습비 계산 + 집계 파생값
+import { APP } from "./config.js";
+
+export const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
+const pad = (n) => String(n).padStart(2, "0");
+export const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+export const parse = (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+export const dayName = (s) => DAYS[(parse(s).getDay() + 6) % 7];
+export const fmt = (s) => (s ? `${+s.slice(5, 7)}/${+s.slice(8, 10)}(${dayName(s)})` : "-");
+export const won = (n) => (n == null ? "-" : Number(n).toLocaleString("ko-KR") + "원");
+
+/** "19:10~22:00" → 170 (분) */
+export function minutesOf(timeRange) {
+  const m = String(timeRange || "").match(/(\d{1,2}):(\d{2})\s*[~\-–]\s*(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return (+m[3] * 60 + +m[4]) - (+m[1] * 60 + +m[2]);
+}
+
+/** 교습비 = 분당단가 × 수업시간(분) × 회차 */
+export const tuitionOf = (minutes, sessions, rate = APP.ratePerMinute) =>
+  minutes && sessions ? rate * minutes * sessions : null;
+
+/** 기수 캘린더의 제외일(모의고사·정기휴가·휴강)을 날짜 배열로 펼침 */
+export function exceptDates(cal) {
+  const out = new Map();
+  if (!cal?.excepts) return out;
+  const push = (list, kind) => (list || []).forEach((d) => out.set(d, kind));
+  push(cal.excepts.mock, "모의고사");
+  push(cal.excepts.vacation, "정기휴가");
+  push(cal.excepts.closed, "휴강");
+  return out;
+}
+
+/**
+ * 개강일부터 요일 반복으로 회차를 만들고 제외일을 건너뜁니다.
+ * @returns [{no, date, skipped, reason}]
+ */
+export function buildSessions({ startDate, weekday, count, excepts = new Map(), untilDate = null }) {
+  const rows = [];
+  if (!startDate || !count) return rows;
+  let cur = parse(startDate);
+  const wantIdx = weekday ? DAYS.indexOf(weekday) : (cur.getDay() + 6) % 7;
+  while (((cur.getDay() + 6) % 7) !== wantIdx) cur.setDate(cur.getDate() + 1);
+  let made = 0, guard = 0;
+  while (made < count && guard++ < 200) {
+    const d = iso(cur);
+    if (untilDate && d > untilDate) break;
+    const reason = excepts.get(d);
+    if (reason) rows.push({ no: null, date: d, skipped: true, reason });
+    else rows.push({ no: ++made, date: d, skipped: false, reason: null });
+    cur.setDate(cur.getDate() + 7);
+  }
+  return rows;
+}
+
+/** 환불 예상액. 전액 = 총액, 1회수강 = 총액 − (교습비/총회차) − (교재 수령 시 교재비) */
+export function refundAmount(course, refund) {
+  if (!course?.fee) return null;
+  const total = course.fee.total ?? ((course.fee.tuition || 0) + (course.fee.book || 0));
+  if (!refund) return null;
+  if (refund.type === "전액") return total;
+  const n = (course.sessions || []).length || 1;
+  const perSession = Math.round((course.fee.tuition || 0) / n);
+  const bookKeep = refund.bookRefund === "수령" ? (course.fee.book || 0) : 0;
+  return Math.max(total - perSession - bookKeep, 0);
+}
+
+// ── 집계 ────────────────────────────────────────────────────────
+export function countsFor(courseId, enrollments, waitlist) {
+  const es = enrollments.filter((e) => e.courseId === courseId);
+  return {
+    applied: es.filter((e) => e.status !== "환불").length,
+    paid: es.filter((e) => e.status === "결제완료").length,
+    unpaid: es.filter((e) => e.status === "미결제").length,
+    refunded: es.filter((e) => e.status === "환불").length,
+    waiting: waitlist.filter((w) => w.courseId === courseId
+      && ["유지", "무응답", "안읽음"].includes(w.state)).length,
+  };
+}
+
+export function termSummary(term, courses, enrollments, waitlist) {
+  const ids = new Set(courses.filter((c) => c.term === term).map((c) => c.id));
+  const es = enrollments.filter((e) => ids.has(e.courseId));
+  const revenue = es.filter((e) => e.status === "결제완료").reduce((s, e) => {
+    const c = courses.find((x) => x.id === e.courseId);
+    return s + (c?.fee?.total || 0);
+  }, 0);
+  return {
+    courses: ids.size,
+    applied: es.filter((e) => e.status !== "환불").length,
+    paid: es.filter((e) => e.status === "결제완료").length,
+    unpaid: es.filter((e) => e.status === "미결제").length,
+    refunded: es.filter((e) => e.status === "환불").length,
+    waiting: waitlist.filter((w) => ids.has(w.courseId)
+      && ["유지", "무응답", "안읽음"].includes(w.state)).length,
+    revenue,
+  };
+}
+
+export const dday = (dateStr, today = iso(new Date())) => {
+  const diff = Math.round((parse(dateStr) - parse(today)) / 86400000);
+  return diff === 0 ? "D-DAY" : diff > 0 ? `D-${diff}` : null;
+};
