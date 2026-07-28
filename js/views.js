@@ -43,6 +43,13 @@ const termChips = (active) => `<div class="chips">
   ${TERMS.map((t) => `<button class="chip ${active === t ? "on" : ""}" data-term="${t}">${t}</button>`).join("")}
 </div>`;
 
+
+const STATUS_TAG = { "수강": "tag-ok", "신청": "tag-warn", "취소": "tag-neutral", "환불": "tag-danger" };
+const statusTag = (raw) => {
+  const st = C.normStatus(raw);
+  return `<span class="tag ${STATUS_TAG[st] || "tag-neutral"}">${esc(st)}</span>`;
+};
+
 const emptyBox = (title, hint) =>
   `<div class="empty"><b>${esc(title)}</b>${hint ? esc(hint) : ""}</div>`;
 
@@ -57,22 +64,23 @@ export function viewDashboard() {
 
   const sum = list.reduce((a, c) => {
     const n = C.countsFor(c.id, enrollments, waitlist);
-    a.applied += n.applied; a.paid += n.paid; a.unpaid += n.unpaid;
-    a.refunded += n.refunded; a.waiting += n.waiting;
-    a.revenue += n.paid * (c.fee?.total || 0);
+    a.active += n.active; a.attending += n.attending; a.applied += n.applied;
+    a.canceled += n.canceled; a.refunded += n.refunded; a.waiting += n.waiting;
+    a.revenue += n.attending * (c.fee?.total || 0);
     return a;
-  }, { applied: 0, paid: 0, unpaid: 0, refunded: 0, waiting: 0, revenue: 0 });
+  }, { active: 0, attending: 0, applied: 0, canceled: 0, refunded: 0, waiting: 0, revenue: 0 });
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>현황표</h1><p>기수별 개설 강좌와 신청·결제 현황입니다.</p></div>
+    <div><h1>현황표</h1><p>기수별 개설 강좌와 신청·수강 현황입니다.</p></div>
     ${termChips(termFilter)}
   </div>
   <dl class="kpis">
     <div class="kpi"><dt>개설 강좌</dt><dd>${list.length}<small>개</small></dd></div>
-    <div class="kpi accent"><dt>신청</dt><dd>${sum.applied}<small>명</small></dd></div>
-    <div class="kpi"><dt>결제완료</dt><dd>${sum.paid}<small>명</small></dd></div>
-    <div class="kpi ${sum.unpaid ? "alert" : ""}"><dt>미결제</dt><dd>${sum.unpaid}<small>명</small></dd></div>
+    <div class="kpi accent"><dt>인원</dt><dd>${sum.active}<small>명</small></dd></div>
+    <div class="kpi"><dt>수강</dt><dd>${sum.attending}<small>명</small></dd></div>
+    <div class="kpi ${sum.applied ? "alert" : ""}"><dt>신청</dt><dd>${sum.applied}<small>명</small></dd></div>
+    <div class="kpi"><dt>취소</dt><dd>${sum.canceled}<small>건</small></dd></div>
     <div class="kpi"><dt>환불</dt><dd>${sum.refunded}<small>건</small></dd></div>
     <div class="kpi"><dt>대기</dt><dd>${sum.waiting}<small>명</small></dd></div>
     <div class="kpi"><dt>결제액</dt><dd style="font-size:19px">${C.won(sum.revenue)}</dd></div>
@@ -82,14 +90,15 @@ export function viewDashboard() {
     <div class="tbl-wrap">${list.length ? `<table class="tbl">
       <thead><tr>
         <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th>강의실</th>
-        <th class="num">신청</th><th class="num">결제</th><th class="num">미결제</th>
-        <th class="num">환불</th><th class="num">대기</th><th>정원</th><th>개강</th><th>회차</th><th>출석부</th>
+        <th class="num">인원</th><th class="num">수강</th><th class="num">신청</th>
+        <th class="num">취소</th><th class="num">환불</th><th class="num">대기</th>
+        <th>정원</th><th>개강</th><th>회차</th><th>출석부</th>
       </tr></thead><tbody>
       ${list.map((c) => {
         const n = C.countsFor(c.id, enrollments, waitlist);
         const cap = c.cap1 || c.cap2 || null;
-        const pct = cap ? Math.min(Math.round((n.applied / cap) * 100), 130) : 0;
-        const cls = !cap ? "" : n.applied > cap ? "over" : n.applied === cap ? "full" : "";
+        const pct = cap ? Math.min(Math.round((n.active / cap) * 100), 130) : 0;
+        const cls = !cap ? "" : n.active > cap ? "over" : n.active === cap ? "full" : "";
         const open = (c.sessions || [])[0]?.date;
         return `<tr class="clickable" data-course="${esc(c.id)}">
           <td><span class="tag tag-peri">${esc(c.term)}</span></td>
@@ -98,9 +107,10 @@ export function viewDashboard() {
           <td>${esc((c.teachers || []).join(", "))}</td>
           <td>${esc([c.day1, c.time1].filter(Boolean).join(" "))}</td>
           <td>${esc(c.room) || '<span class="dim">-</span>'}</td>
-          <td class="num strong">${n.applied}</td>
-          <td class="num">${n.paid}</td>
-          <td class="num">${n.unpaid ? `<span class="tag tag-warn">${n.unpaid}</span>` : '<span class="dim">0</span>'}</td>
+          <td class="num strong">${n.active}</td>
+          <td class="num">${n.attending}</td>
+          <td class="num">${n.applied ? `<span class="tag tag-warn">${n.applied}</span>` : '<span class="dim">0</span>'}</td>
+          <td class="num">${n.canceled || '<span class="dim">0</span>'}</td>
           <td class="num">${n.refunded || '<span class="dim">0</span>'}</td>
           <td class="num">${n.waiting || '<span class="dim">0</span>'}</td>
           <td>${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
@@ -121,8 +131,9 @@ function courseDrawer(id) {
   if (!c) return;
   const n = C.countsFor(id, S.state.enrollments, S.state.waitlist);
   const mins = C.minutesOf(c.time1);
-  const roster = S.state.enrollments.filter((e) => e.courseId === id && e.status !== "환불")
-    .map((e) => ({ e, s: S.state.students.find((s) => s.id === e.studentId) }));
+  const roster = S.state.enrollments.filter((e) => e.courseId === id && C.ACTIVE.includes(C.normStatus(e.status)))
+    .map((e) => ({ e, s: S.state.students.find((s) => s.id === e.studentId) }))
+    .sort((a, b) => String(a.e.studentId).localeCompare(String(b.e.studentId), "ko", { numeric: true }));
 
   drawer(c.title, `${c.term} · ${(c.teachers || []).join(", ")}`, `
     <dl class="dl">
@@ -132,19 +143,20 @@ function courseDrawer(id) {
       <dt>교습비</dt><dd>${C.won(c.fee?.tuition)}${mins && c.sessions?.length ? ` <span class="dim">· 계산값 ${C.won(C.tuitionOf(mins, c.sessions.length))}</span>` : ""}</dd>
       <dt>교재</dt><dd>${esc(c.textbook?.title) || "없음"}${c.fee?.book ? ` · ${C.won(c.fee.book)}` : ""}</dd>
       <dt>총액</dt><dd class="strong">${C.won(c.fee?.total)}</dd>
-      <dt>현황</dt><dd>신청 ${n.applied} · 결제 ${n.paid} · 미결제 ${n.unpaid} · 환불 ${n.refunded} · 대기 ${n.waiting}</dd>
+      <dt>현황</dt><dd>인원 ${n.active} (수강 ${n.attending} · 신청 ${n.applied}) · 취소 ${n.canceled} · 환불 ${n.refunded} · 대기 ${n.waiting}</dd>
       ${c.note ? `<dt>특이사항</dt><dd>${esc(c.note)}</dd>` : ""}
     </dl>
     <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">수업 일정 (${(c.sessions || []).length}회)</h4>
     <div class="daylist">${(c.sessions || []).map((s) =>
       `<span class="day ${s.canceled ? "skip" : ""}">${s.no}회 ${C.fmt(s.date)}</span>`).join("") || '<span class="dim">등록된 회차 없음</span>'}</div>
-    <h4 style="font-size:12px;color:var(--muted);margin:22px 0 8px">수강생 ${roster.length}명</h4>
+    <h4 style="font-size:12px;color:var(--muted);margin:22px 0 8px">명단 ${roster.length}명</h4>
     <div class="tbl-wrap"><table class="tbl"><tbody>
       ${roster.map(({ e, s }) => `<tr>
         <td>${esc(s?.classGroup) || "-"}</td><td class="strong">${esc(s?.name) || e.studentId}</td>
         <td class="dim">${esc(e.studentId)}</td>
-        <td>${e.status === "결제완료" ? '<span class="tag tag-ok">결제완료</span>' : '<span class="tag tag-warn">미결제</span>'}</td>
-      </tr>`).join("") || '<tr><td class="dim">등록된 수강생이 없습니다.</td></tr>'}
+        <td>${statusTag(e.status)}</td>
+        <td class="dim">${e.startSession && e.startSession > 1 ? `${e.startSession}회차부터` : ""}</td>
+      </tr>`).join("") || '<tr><td class="dim">등록된 학생이 없습니다.</td></tr>'}
     </tbody></table></div>`);
 }
 
@@ -156,11 +168,14 @@ let q = "", statusFilter = "", courseFilter = "";
 export function viewStudents() {
   const { enrollments, students, courses } = S.state;
   const rows = enrollments
-    .filter((e) => e.status !== "환불")
+    .filter((e) => {
+      const st = C.normStatus(e.status);
+      if (st === "환불") return false;
+      return statusFilter ? st === statusFilter : C.ACTIVE.includes(st);
+    })
     .map((e) => ({ e, s: students.find((x) => x.id === e.studentId), c: courses.find((x) => x.id === e.courseId) }))
     .filter(({ e, s, c }) => {
       if (termFilter && e.term !== termFilter) return false;
-      if (statusFilter && e.status !== statusFilter) return false;
       if (courseFilter && e.courseId !== courseFilter) return false;
       if (!q) return true;
       const hay = `${s?.name || ""} ${e.studentId} ${s?.classGroup || ""} ${c?.title || ""}`;
@@ -185,27 +200,38 @@ export function viewStudents() {
     ${termChips(termFilter)}
     <input class="inp" id="q" placeholder="이름 · 학번 · 반 검색" value="${esc(q)}" style="width:200px">
     <select class="inp" id="st">
-      <option value="">결제상태 전체</option>
-      <option value="결제완료" ${statusFilter === "결제완료" ? "selected" : ""}>결제완료</option>
-      <option value="미결제" ${statusFilter === "미결제" ? "selected" : ""}>미결제</option>
+      <option value="">신청 + 수강</option>
+      <option value="수강" ${statusFilter === "수강" ? "selected" : ""}>수강만</option>
+      <option value="신청" ${statusFilter === "신청" ? "selected" : ""}>신청만</option>
+      <option value="취소" ${statusFilter === "취소" ? "selected" : ""}>취소 이력</option>
     </select>
     <select class="inp" id="cf"><option value="">강좌 전체</option>${courseOpts}</select>
   </div>
+  ${statusFilter === "취소" ? `<div class="banner banner-info"><i data-lucide="info"></i>
+    <div>결제 전 취소한 이력입니다. 평소 명단에는 나오지 않으며, 같은 학생이 다시 신청하면
+    <b>신청 추가</b>로 되살릴 수 있습니다.</div></div>` : ""}
   <section class="card"><div class="tbl-wrap">${rows.length ? `<table class="tbl">
     <thead><tr><th>반</th><th>그룹</th><th>학번</th><th>성명</th><th>기수</th><th>강좌</th>
-      <th>결제주체</th><th>결제일</th><th>상태</th><th></th></tr></thead>
-    <tbody>${rows.map(({ e, s, c }) => `<tr class="clickable" data-sid="${esc(e.studentId)}">
+      <th>시작회차</th><th>결제주체</th><th>결제일</th><th>상태</th><th></th></tr></thead>
+    <tbody>${rows.map(({ e, s, c }) => {
+      const st = C.normStatus(e.status);
+      return `<tr class="clickable" data-sid="${esc(e.studentId)}">
       <td>${esc(s?.classGroup) || "-"}</td><td>${esc(s?.group) || "-"}</td>
       <td class="dim">${esc(e.studentId)}</td><td class="strong">${esc(s?.name) || "-"}</td>
       <td><span class="tag tag-peri">${esc(e.term)}</span></td>
       <td>${esc(c?.title) || '<span class="tag tag-danger">미연결</span>'}</td>
+      <td>${e.startSession && e.startSession > 1
+        ? `<span class="tag tag-teal">${e.startSession}회차</span>` : '<span class="dim">1회차</span>'}</td>
       <td>${esc(e.payer) || '<span class="dim">-</span>'}</td>
       <td>${e.paidAt ? C.fmt(e.paidAt) : '<span class="dim">-</span>'}</td>
-      <td>${e.status === "결제완료" ? '<span class="tag tag-ok">결제완료</span>' : '<span class="tag tag-warn">미결제</span>'}</td>
-      <td>${e.status === "결제완료"
-        ? `<button class="btn btn-sm btn-danger" data-refund="${esc(e.id)}">환불 신청</button>`
-        : `<button class="btn btn-sm" data-pay="${esc(e.id)}">결제확인</button>`}</td>
-    </tr>`).join("")}</tbody></table>`
+      <td>${statusTag(e.status)}</td>
+      <td style="white-space:nowrap">${
+        st === "수강" ? `<button class="btn btn-sm btn-danger" data-refund="${esc(e.id)}">환불 신청</button>`
+        : st === "신청" ? `<button class="btn btn-sm" data-pay="${esc(e.id)}">결제확인</button>
+            <button class="btn btn-sm btn-danger" data-cancel="${esc(e.id)}">취소</button>`
+        : `<button class="btn btn-sm" data-restore="${esc(e.id)}">되살리기</button>`}</td>
+    </tr>`;
+    }).join("")}</tbody></table>`
     : emptyBox("조건에 맞는 학생이 없습니다.", "검색어나 필터를 바꿔보세요.")}
   </div></section>`;
 
@@ -218,8 +244,22 @@ export function viewStudents() {
   host().querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", async (ev) => {
     ev.stopPropagation();
     const e = S.state.enrollments.find((x) => x.id === b.dataset.pay);
-    await S.saveEnrollment(e.id, { status: "결제완료", paidAt: C.iso(new Date()) });
-    toast("결제완료로 변경했습니다.");
+    await S.saveEnrollment(e.id, { status: "수강", paidAt: C.iso(new Date()) });
+    toast("수강으로 변경했습니다.");
+  }));
+  host().querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    const e = S.state.enrollments.find((x) => x.id === b.dataset.cancel);
+    const s = S.state.students.find((x) => x.id === e.studentId);
+    if (!confirm(`${s?.name || e.studentId} 학생의 신청을 취소합니다.\n명단에서는 숨겨지지만 기록은 남습니다. 계속할까요?`)) return;
+    await S.saveEnrollment(e.id, { status: "취소", canceledAt: C.iso(new Date()) });
+    toast("취소 처리했습니다. '취소 이력' 필터에서 볼 수 있습니다.");
+  }));
+  host().querySelectorAll("[data-restore]").forEach((b) => b.addEventListener("click", async (ev) => {
+    ev.stopPropagation();
+    const e = S.state.enrollments.find((x) => x.id === b.dataset.restore);
+    await S.saveEnrollment(e.id, { status: "신청", canceledAt: null });
+    toast("신청 상태로 되살렸습니다.");
   }));
   host().querySelectorAll("[data-refund]").forEach((b) => b.addEventListener("click", (ev) => {
     ev.stopPropagation();
@@ -232,7 +272,7 @@ function studentDrawer(sid) {
   const s = S.state.students.find((x) => x.id === sid);
   const es = S.state.enrollments.filter((e) => e.studentId === sid);
   const ws = S.state.waitlist.filter((w) => w.studentId === sid);
-  const total = es.filter((e) => e.status === "결제완료")
+  const total = es.filter((e) => C.normStatus(e.status) === "수강")
     .reduce((a, e) => a + (S.state.courses.find((c) => c.id === e.courseId)?.fee?.total || 0), 0);
   drawer(s?.name || sid, `${s?.classGroup || "-"}반 · ${sid}`, `
     <dl class="dl">
@@ -245,12 +285,9 @@ function studentDrawer(sid) {
     <div class="tbl-wrap"><table class="tbl"><tbody>
       ${es.map((e) => {
         const c = S.state.courses.find((x) => x.id === e.courseId);
-        const badge = e.status === "환불" ? '<span class="tag tag-danger">환불</span>'
-          : e.status === "결제완료" ? '<span class="tag tag-ok">결제완료</span>'
-          : '<span class="tag tag-warn">미결제</span>';
         return `<tr><td><span class="tag tag-peri">${esc(e.term)}</span></td>
           <td class="strong">${esc(c?.title) || esc(e.courseId)}</td>
-          <td>${badge}</td><td class="dim">${e.paidAt ? C.fmt(e.paidAt) : ""}</td></tr>`;
+          <td>${statusTag(e.status)}</td><td class="dim">${e.paidAt ? C.fmt(e.paidAt) : ""}</td></tr>`;
       }).join("") || '<tr><td class="dim">이력이 없습니다.</td></tr>'}
     </tbody></table></div>
     ${ws.length ? `<h4 style="font-size:12px;color:var(--muted);margin:22px 0 8px">대기 ${ws.length}건</h4>
@@ -273,6 +310,10 @@ function addEnrollDrawer(preCourseId = courseFilter) {
           [${esc(c.term)}] ${esc(c.title)}${c.teachers?.length ? ` · ${esc(c.teachers.join(","))}` : ""}</option>`).join("")}
       </select></label>
 
+    <label class="field"><span>시작 회차</span>
+      <select class="inp" id="a-start" style="width:100%"></select>
+      <span id="a-startinfo" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
+
     <label class="field"><span>학번</span>
       <input class="inp" id="a-sid" style="width:100%" inputmode="numeric" placeholder="예: 5139" autocomplete="off"></label>
     <div id="a-who" style="margin:-6px 0 14px;font-size:13px"></div>
@@ -288,9 +329,9 @@ function addEnrollDrawer(preCourseId = courseFilter) {
       <select class="inp" id="a-payer" style="width:100%">
         <option value="">미정</option><option>학부모</option><option>학생</option><option>학부모+학생</option>
       </select></label>
-    <label class="field"><span>결제 상태</span>
+    <label class="field"><span>상태</span>
       <select class="inp" id="a-status" style="width:100%">
-        <option value="미결제">미결제</option><option value="결제완료">결제완료</option>
+        <option value="신청">신청</option><option value="수강">수강 (결제 완료)</option>
       </select></label>
     <label class="field" id="a-paidwrap" hidden><span>결제일</span>
       <input class="inp" type="date" id="a-paid" value="${today}" style="width:100%"></label>
@@ -330,10 +371,28 @@ function addEnrollDrawer(preCourseId = courseFilter) {
     return true;
   };
 
+  const fillSessions = () => {
+    const c = S.state.courses.find((x) => x.id === el("#a-course").value);
+    const sel = el("#a-start"), info = el("#a-startinfo");
+    const list = c?.sessions || [];
+    if (!list.length) {
+      sel.innerHTML = '<option value="1">1회차</option>';
+      info.textContent = "회차 정보가 없는 강좌입니다.";
+      return;
+    }
+    const today = C.iso(new Date());
+    const next = list.find((x) => !x.canceled && x.date >= today) || list[0];
+    sel.innerHTML = list.map((x) => `<option value="${x.no}" ${x.no === next.no ? "selected" : ""}>
+      ${x.no}회차 · ${C.fmt(x.date)}${x.canceled ? " (휴강)" : ""}</option>`).join("");
+    const remain = list.filter((x) => !x.canceled && x.no >= next.no).length;
+    info.textContent = `오늘 기준 다음 수업은 ${next.no}회차입니다. 남은 수업 ${remain}회.`;
+  };
+  fillSessions();
+
   el("#a-sid").addEventListener("input", () => { lookup(); checkDup(); });
-  el("#a-course").addEventListener("change", checkDup);
+  el("#a-course").addEventListener("change", () => { fillSessions(); checkDup(); });
   el("#a-status").addEventListener("change", () => {
-    el("#a-paidwrap").hidden = el("#a-status").value !== "결제완료";
+    el("#a-paidwrap").hidden = el("#a-status").value !== "수강";
   });
 
   el("#a-go").onclick = async (ev) => {
@@ -358,8 +417,9 @@ function addEnrollDrawer(preCourseId = courseFilter) {
       await S.saveEnrollment(`${sid}__${cid}`, {
         id: `${sid}__${cid}`, studentId: sid, courseId: cid, term: course.term,
         payer: el("#a-payer").value || null,
-        paidAt: status === "결제완료" ? el("#a-paid").value : null,
-        status, refund: null, source: "manual",
+        paidAt: status === "수강" ? el("#a-paid").value : null,
+        startSession: Number(el("#a-start").value) || 1,
+        status, refund: null, canceledAt: null, source: "manual",
       });
       added.unshift(`${name} · ${course.title}`);
       el("#a-log").innerHTML = `<b style="color:var(--ok)">추가 ${added.length}건</b><br>`
@@ -386,14 +446,15 @@ function refundDrawer(enrollmentId) {
   const today = C.iso(new Date());
   const totalSessions = (c?.sessions || []).length;
   const hasBook = (c?.fee?.book || 0) > 0;
+  const startNo = e.startSession || 1;
 
   const opts = ["전액", ...Array.from({ length: totalSessions }, (_, i) => `${i + 1}회수강`)];
-  const autoType = C.refundTypeFor(C.sessionsTaken(c, today));
+  const autoType = C.refundTypeFor(C.sessionsTaken(c, today, startNo));
 
   const d = drawer("환불 신청", `${s?.name || e.studentId} · ${c?.title || e.courseId}`, `
     <div class="banner banner-info"><i data-lucide="info"></i>
-      <div>오늘(${C.fmt(today)}) 기준 <b>${C.sessionsTaken(c, today)}회</b> 진행된 강좌입니다.
-      휴강일은 회차에서 제외했습니다.</div></div>
+      <div>오늘(${C.fmt(today)}) 기준 이 학생은 <b>${C.sessionsTaken(c, today, startNo)}회</b> 수강했습니다.
+      ${startNo > 1 ? `${startNo}회차부터 시작했고, ` : ""}휴강일은 회차에서 제외했습니다.</div></div>
     <label class="field"><span>취소일</span>
       <input class="inp" type="date" id="r-date" value="${today}" style="width:100%"></label>
     <label class="field"><span>환불유형</span>
@@ -425,7 +486,7 @@ function refundDrawer(enrollmentId) {
   ["#r-date", "#r-type", "#r-book"].forEach((sel) => {
     const el = $(sel, d);
     el.addEventListener("change", () => {
-      if (sel === "#r-date") $("#r-type", d).value = C.refundTypeFor(C.sessionsTaken(c, el.value));
+      if (sel === "#r-date") $("#r-type", d).value = C.refundTypeFor(C.sessionsTaken(c, el.value, startNo));
       paint();
     });
   });
@@ -449,11 +510,12 @@ async function exportExcel(rows, btn) {
   if (btn) { btn.disabled = true; btn.textContent = "저장 중…"; }
   try {
     const XLSX = await loadSheetJs();
-    const head = ["반", "그룹", "학번", "성명", "기수", "강좌", "결제주체", "결제일", "상태"];
+    const head = ["반", "그룹", "학번", "성명", "기수", "강좌", "시작회차", "결제주체", "결제일", "상태"];
     const body = rows.map(({ e, s, c }) => [s?.classGroup ?? "", s?.group ?? "", e.studentId,
-      s?.name ?? "", e.term ?? "", c?.title ?? "", e.payer ?? "", e.paidAt ?? "", e.status]);
+      s?.name ?? "", e.term ?? "", c?.title ?? "", e.startSession || 1,
+      e.payer ?? "", e.paidAt ?? "", C.normStatus(e.status)]);
     const ws = XLSX.utils.aoa_to_sheet([head, ...body]);
-    ws["!cols"] = [6, 6, 8, 10, 7, 26, 11, 12, 10].map((w) => ({ wch: w }));
+    ws["!cols"] = [6, 6, 8, 10, 7, 26, 9, 11, 12, 10].map((w) => ({ wch: w }));
     ws["!freeze"] = { xSplit: 0, ySplit: 1 };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "특강학생명단");
@@ -532,7 +594,7 @@ function previewRoster(parsed, filename) {
       <dt>기존 유지</dt><dd>${okRows.length - news.length}건</dd>
     </dl>
     <div class="banner banner-info"><i data-lucide="info"></i>
-      <div>신규 ${news.length}건이 <b>미결제</b> 상태로 추가됩니다. 기존 건의 결제 상태는 바뀌지 않습니다.</div></div>
+      <div>신규 ${news.length}건이 <b>신청</b> 상태로 추가됩니다. 기존 건의 상태는 바뀌지 않습니다.</div></div>
     <div class="tbl-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><tbody>
       ${news.slice(0, 100).map((r) => `<tr><td>${esc(r.classGroup)}</td><td class="strong">${esc(r.name)}</td>
         <td class="dim">${esc(r.studentId)}</td><td>${esc(r.course.title)}</td></tr>`).join("")
@@ -546,8 +608,8 @@ function previewRoster(parsed, filename) {
     try {
       await S.bulkSet("enrollments", news.map((r) => ({
         id: `${r.studentId}__${r.course.id}`, studentId: r.studentId, courseId: r.course.id,
-        term: r.course.term, payer: r.payer, paidAt: null, status: "미결제",
-        refund: null, source: "roster-upload",
+        term: r.course.term, payer: r.payer, paidAt: null, status: "신청",
+        startSession: 1, refund: null, source: "roster-upload",
       })));
       const newStudents = [...new Map(news.map((r) => [r.studentId,
         { id: r.studentId, name: r.name, classGroup: r.classGroup }])).values()]
