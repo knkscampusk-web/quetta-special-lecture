@@ -65,8 +65,9 @@ export const refundTypeFor = (n) => (n <= 0 ? "전액" : `${n}회수강`);
 export function refundAmount(course, refund) {
   if (!course?.fee || !refund) return null;
   const total = course.fee.total ?? ((course.fee.tuition || 0) + (course.fee.book || 0));
-  if (refund.type === "전액") return total;
-  const m = String(refund.type || "").match(/(\d+)\s*회/);
+  const type = String(refund.type || "");
+  if (type.includes("전액")) return total;          // '전액', '전액환불' 등 표기 흔들림 흡수
+  const m = type.match(/(\d+)\s*회/);               // '3회수강', '3회 수강' 모두 인식
   const used = m ? Number(m[1]) : 1;
   const n = (course.sessions || []).length || 1;
   const perSession = Math.round((course.fee.tuition || 0) / n);
