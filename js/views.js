@@ -176,8 +176,8 @@ export function viewStudents() {
   <div class="page-head">
     <div><h1>특강학생명단</h1><p>학생 × 강좌 단위로 조회합니다. 총 ${rows.length}건.</p></div>
     <div class="toolbar">
-      <button class="btn" id="upload"><i data-lucide="upload"></i>파피 명단 불러오기</button>
-      <button class="btn" id="csv"><i data-lucide="download"></i>CSV 저장</button>
+      <button class="btn" id="upload"><i data-lucide="upload"></i>신청명단 불러오기</button>
+      <button class="btn" id="xlsx"><i data-lucide="download"></i>엑셀파일로 저장</button>
     </div>
   </div>
   <div class="toolbar" style="margin-bottom:14px">
@@ -192,7 +192,7 @@ export function viewStudents() {
   </div>
   <section class="card"><div class="tbl-wrap">${rows.length ? `<table class="tbl">
     <thead><tr><th>반</th><th>그룹</th><th>학번</th><th>성명</th><th>기수</th><th>강좌</th>
-      <th>결제주체</th><th>결제일</th><th>상태</th><th>기숙사</th><th></th></tr></thead>
+      <th>결제주체</th><th>결제일</th><th>상태</th><th></th></tr></thead>
     <tbody>${rows.map(({ e, s, c }) => `<tr class="clickable" data-sid="${esc(e.studentId)}">
       <td>${esc(s?.classGroup) || "-"}</td><td>${esc(s?.group) || "-"}</td>
       <td class="dim">${esc(e.studentId)}</td><td class="strong">${esc(s?.name) || "-"}</td>
@@ -201,8 +201,9 @@ export function viewStudents() {
       <td>${esc(e.payer) || '<span class="dim">-</span>'}</td>
       <td>${e.paidAt ? C.fmt(e.paidAt) : '<span class="dim">-</span>'}</td>
       <td>${e.status === "결제완료" ? '<span class="tag tag-ok">결제완료</span>' : '<span class="tag tag-warn">미결제</span>'}</td>
-      <td class="dim">${esc(s?.dorm) || "-"}</td>
-      <td><button class="btn btn-sm" data-toggle="${esc(e.id)}">${e.status === "결제완료" ? "미결제로" : "결제확인"}</button></td>
+      <td>${e.status === "결제완료"
+        ? `<button class="btn btn-sm btn-danger" data-refund="${esc(e.id)}">환불 신청</button>`
+        : `<button class="btn btn-sm" data-pay="${esc(e.id)}">결제확인</button>`}</td>
     </tr>`).join("")}</tbody></table>`
     : emptyBox("조건에 맞는 학생이 없습니다.", "검색어나 필터를 바꿔보세요.")}
   </div></section>`;
@@ -210,14 +211,17 @@ export function viewStudents() {
   $("#q").oninput = (ev) => { q = ev.target.value; render("students"); $("#q").focus(); };
   $("#st").onchange = (ev) => { statusFilter = ev.target.value; render("students"); };
   $("#cf").onchange = (ev) => { courseFilter = ev.target.value; render("students"); };
-  $("#csv").onclick = () => exportCsv(rows);
-  $("#upload").onclick = openPaffyUpload;
-  host().querySelectorAll("[data-toggle]").forEach((b) => b.addEventListener("click", async (ev) => {
+  $("#xlsx").onclick = (ev) => exportExcel(rows, ev.currentTarget);
+  $("#upload").onclick = openRosterUpload;
+  host().querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", async (ev) => {
     ev.stopPropagation();
-    const e = S.state.enrollments.find((x) => x.id === b.dataset.toggle);
-    const on = e.status !== "결제완료";
-    await S.saveEnrollment(e.id, { status: on ? "결제완료" : "미결제", paidAt: on ? C.iso(new Date()) : null });
-    toast(on ? "결제완료로 변경했습니다." : "미결제로 되돌렸습니다.");
+    const e = S.state.enrollments.find((x) => x.id === b.dataset.pay);
+    await S.saveEnrollment(e.id, { status: "결제완료", paidAt: C.iso(new Date()) });
+    toast("결제완료로 변경했습니다.");
+  }));
+  host().querySelectorAll("[data-refund]").forEach((b) => b.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    refundDrawer(b.dataset.refund);
   }));
   host().querySelectorAll("[data-sid]").forEach((tr) => tr.addEventListener("click", () => studentDrawer(tr.dataset.sid)));
 }
@@ -253,18 +257,93 @@ function studentDrawer(sid) {
       </tbody></table></div>` : ""}`);
 }
 
-function exportCsv(rows) {
-  const head = ["반", "그룹", "학번", "성명", "기수", "강좌", "결제주체", "결제일", "상태"];
-  const body = rows.map(({ e, s, c }) => [s?.classGroup, s?.group, e.studentId, s?.name,
-    e.term, c?.title, e.payer, e.paidAt, e.status]);
-  const csv = [head, ...body].map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" }));
-  a.download = `특강학생명단_${C.iso(new Date())}.csv`;
-  a.click(); URL.revokeObjectURL(a.href);
+function refundDrawer(enrollmentId) {
+  const e = S.state.enrollments.find((x) => x.id === enrollmentId);
+  const c = S.state.courses.find((x) => x.id === e.courseId);
+  const s = S.state.students.find((x) => x.id === e.studentId);
+  const today = C.iso(new Date());
+  const totalSessions = (c?.sessions || []).length;
+  const hasBook = (c?.fee?.book || 0) > 0;
+
+  const opts = ["전액", ...Array.from({ length: totalSessions }, (_, i) => `${i + 1}회수강`)];
+  const autoType = C.refundTypeFor(C.sessionsTaken(c, today));
+
+  const d = drawer("환불 신청", `${s?.name || e.studentId} · ${c?.title || e.courseId}`, `
+    <div class="banner banner-info"><i data-lucide="info"></i>
+      <div>오늘(${C.fmt(today)}) 기준 <b>${C.sessionsTaken(c, today)}회</b> 진행된 강좌입니다.
+      휴강일은 회차에서 제외했습니다.</div></div>
+    <label class="field"><span>취소일</span>
+      <input class="inp" type="date" id="r-date" value="${today}" style="width:100%"></label>
+    <label class="field"><span>환불유형</span>
+      <select class="inp" id="r-type" style="width:100%">
+        ${opts.map((o) => `<option ${o === autoType ? "selected" : ""}>${o}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>교재</span>
+      <select class="inp" id="r-book" style="width:100%" ${hasBook ? "" : "disabled"}>
+        ${hasBook
+          ? '<option value="환불">반납 · 교재비 환불</option><option value="수령">수령함 · 교재비 차감</option>'
+          : '<option value="없음">교재 없음</option>'}
+      </select></label>
+    <dl class="dl" style="margin-top:18px">
+      <dt>총 결제액</dt><dd>${C.won(c?.fee?.total)}</dd>
+      <dt>1회 교습비</dt><dd>${C.won(totalSessions ? Math.round((c?.fee?.tuition || 0) / totalSessions) : null)}</dd>
+      <dt>교재비</dt><dd>${hasBook ? C.won(c.fee.book) : "없음"}</dd>
+      <dt>환불 예상액</dt><dd class="strong" id="r-amt" style="font-size:17px;color:var(--teal-d)">-</dd>
+    </dl>
+    <button class="btn btn-pri" id="r-go" style="width:100%;justify-content:center;margin-top:6px">환불 확정</button>
+    <p style="font-size:12px;color:var(--muted);margin:10px 0 0">
+      확정하면 이 학생은 환불자 명단으로 이동합니다. 되돌리려면 환불자 명단에서 처리하세요.</p>`);
+
+  const read = () => ({
+    canceledAt: $("#r-date", d).value || today,
+    type: $("#r-type", d).value,
+    bookRefund: $("#r-book", d).value,
+  });
+  const paint = () => { $("#r-amt", d).textContent = C.won(C.refundAmount(c, read())); };
+  ["#r-date", "#r-type", "#r-book"].forEach((sel) => {
+    const el = $(sel, d);
+    el.addEventListener("change", () => {
+      if (sel === "#r-date") $("#r-type", d).value = C.refundTypeFor(C.sessionsTaken(c, el.value));
+      paint();
+    });
+  });
+  paint();
+
+  $("#r-go", d).onclick = async (ev) => {
+    ev.target.disabled = true; ev.target.textContent = "처리 중…";
+    try {
+      await S.saveEnrollment(e.id, { status: "환불", refund: read() });
+      closeDrawer();
+      toast("환불 처리했습니다. 환불자 명단에서 확인하세요.");
+    } catch (err) {
+      toast("처리하지 못했습니다: " + err.message);
+      ev.target.disabled = false; ev.target.textContent = "환불 확정";
+    }
+  };
 }
 
-// ── 파피 엑셀 불러오기 ──────────────────────────────────────────
+async function exportExcel(rows, btn) {
+  const label = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = "저장 중…"; }
+  try {
+    const XLSX = await loadSheetJs();
+    const head = ["반", "그룹", "학번", "성명", "기수", "강좌", "결제주체", "결제일", "상태"];
+    const body = rows.map(({ e, s, c }) => [s?.classGroup ?? "", s?.group ?? "", e.studentId,
+      s?.name ?? "", e.term ?? "", c?.title ?? "", e.payer ?? "", e.paidAt ?? "", e.status]);
+    const ws = XLSX.utils.aoa_to_sheet([head, ...body]);
+    ws["!cols"] = [6, 6, 8, 10, 7, 26, 11, 12, 10].map((w) => ({ wch: w }));
+    ws["!freeze"] = { xSplit: 0, ySplit: 1 };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "특강학생명단");
+    XLSX.writeFile(wb, `특강학생명단_${C.iso(new Date())}.xlsx`);
+  } catch (err) {
+    toast("저장하지 못했습니다: " + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+
+// ── 신청명단 엑셀 불러오기 ──────────────────────────────────────
 async function loadSheetJs() {
   if (window.XLSX) return window.XLSX;
   await new Promise((res, rej) => {
@@ -276,7 +355,7 @@ async function loadSheetJs() {
   return window.XLSX;
 }
 
-function openPaffyUpload() {
+function openRosterUpload() {
   const inp = document.createElement("input");
   inp.type = "file"; inp.accept = ".xlsx,.xls";
   inp.onchange = async () => {
@@ -286,7 +365,7 @@ function openPaffyUpload() {
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
       const hi = grid.findIndex((r) => (r || []).some((c) => String(c).trim() === "학번"));
-      if (hi < 0) throw new Error("'학번' 헤더를 찾을 수 없습니다. 파피 명단 원본인지 확인하세요.");
+      if (hi < 0) throw new Error("'학번' 헤더를 찾을 수 없습니다. 신청명단 원본 파일인지 확인하세요.");
       const head = grid[hi].map((x) => String(x ?? "").trim());
       const col = (name) => head.indexOf(name);
       const courseCols = head.map((h, i) => ({ h, i }))
@@ -305,13 +384,13 @@ function openPaffyUpload() {
           });
         });
       }
-      previewPaffy(parsed, file.name);
+      previewRoster(parsed, file.name);
     } catch (err) { toast(err.message); }
   };
   inp.click();
 }
 
-function previewPaffy(parsed, filename) {
+function previewRoster(parsed, filename) {
   const match = (title) => S.state.courses.find((c) =>
     c.title.replace(/\s|［.*?］|\[.*?\]/g, "") === title.replace(/\s|［.*?］|\[.*?\]/g, ""))
     || S.state.courses.find((c) => c.title.includes(title) || title.includes(c.title));
@@ -321,7 +400,7 @@ function previewPaffy(parsed, filename) {
   const news = okRows.filter((r) => !S.state.enrollments
     .some((e) => e.studentId === r.studentId && e.courseId === r.course.id));
 
-  const d = drawer("파피 명단 불러오기", filename, `
+  const d = drawer("신청명단 불러오기", filename, `
     ${bad.length ? `<div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
       <div>강좌명이 매칭되지 않은 ${bad.length}건은 제외됩니다: ${esc([...new Set(bad.map((b) => b.courseTitle))].join(", "))}</div></div>` : ""}
     <dl class="dl">
@@ -337,16 +416,16 @@ function previewPaffy(parsed, filename) {
         <td class="dim">${esc(r.studentId)}</td><td>${esc(r.course.title)}</td></tr>`).join("")
         || '<tr><td class="dim">추가할 신규 건이 없습니다.</td></tr>'}
     </tbody></table></div>
-    <button class="btn btn-pri" id="applyPaffy" style="width:100%;justify-content:center;margin-top:16px"
+    <button class="btn btn-pri" id="applyRoster" style="width:100%;justify-content:center;margin-top:16px"
       ${news.length ? "" : "disabled"}>${news.length}건 추가하기</button>`);
 
-  $("#applyPaffy", d).onclick = async (ev) => {
+  $("#applyRoster", d).onclick = async (ev) => {
     ev.target.disabled = true; ev.target.textContent = "추가하는 중…";
     try {
       await S.bulkSet("enrollments", news.map((r) => ({
         id: `${r.studentId}__${r.course.id}`, studentId: r.studentId, courseId: r.course.id,
         term: r.course.term, payer: r.payer, paidAt: null, status: "미결제",
-        refund: null, source: "paffy-upload",
+        refund: null, source: "roster-upload",
       })));
       const newStudents = [...new Map(news.map((r) => [r.studentId,
         { id: r.studentId, name: r.name, classGroup: r.classGroup }])).values()]
