@@ -575,10 +575,7 @@ function openRosterUpload() {
 }
 
 function previewRoster(parsed, filename) {
-  const match = (title) => S.state.courses.find((c) =>
-    c.title.replace(/\s|［.*?］|\[.*?\]/g, "") === title.replace(/\s|［.*?］|\[.*?\]/g, ""))
-    || S.state.courses.find((c) => c.title.includes(title) || title.includes(c.title));
-  const rows = parsed.map((p) => ({ ...p, course: match(p.courseTitle) }));
+  const rows = parsed.map((p) => ({ ...p, course: findCourseByTitle(p.courseTitle) }));
   const okRows = rows.filter((r) => r.course);
   const bad = rows.filter((r) => !r.course);
   const news = okRows.filter((r) => !S.state.enrollments
@@ -700,59 +697,287 @@ export function viewRefunds() {
 // 4. 대기자 명단
 // ════════════════════════════════════════════════════════════════
 const WAIT_STATES = ["유지", "무응답", "안읽음", "취소", "배정"];
+const WAIT_TAG = { 배정: "tag-ok", 취소: "tag-neutral", 유지: "tag-teal" };
+
+/** 강의명 문자열 → 강좌 문서 (표기 흔들림 흡수) */
+function findCourseByTitle(title) {
+  if (!title) return null;
+  const norm = (t) => String(t).replace(/\s|［.*?］|\[.*?\]/g, "");
+  const key = norm(title);
+  return S.state.courses.find((c) => norm(c.title) === key)
+    || S.state.courses.find((c) => norm(c.title).includes(key) || key.includes(norm(c.title)))
+    || null;
+}
 
 export function viewWaitlist() {
   const rows = S.state.waitlist
     .filter((w) => !termFilter || S.state.courses.find((c) => c.id === w.courseId)?.term === termFilter)
-    .sort((a, b) => String(a.registeredAt).localeCompare(String(b.registeredAt)));
+    .sort((a, b) => String(a.registeredAt ?? "").localeCompare(String(b.registeredAt ?? "")));
+  // 현황표의 대기 KPI(calc.countsFor)와 동일 기준
   const active = rows.filter((w) => ["유지", "무응답", "안읽음"].includes(w.state));
-  const byCourse = {};
-  active.forEach((w) => { (byCourse[w.courseTitle] ||= []).push(w); });
+  const courses = new Set(active.map((w) => w.courseId || w.courseTitle));
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>대기자 명단</h1><p>결원이 생기면 등록 순서대로 승계합니다. 대기 중 ${active.length}명.</p></div>
-    ${termChips(termFilter)}
+    <div><h1>대기자 명단</h1><p>등록 순서대로 배정합니다. 대기 중 ${active.length}명 · 전체 ${rows.length}건.</p></div>
+    <div class="toolbar">
+      <button class="btn btn-pri" id="w-add"><i data-lucide="plus"></i>대기자 추가</button>
+      <button class="btn" id="w-upload"><i data-lucide="upload"></i>명단 불러오기</button>
+    </div>
   </div>
+  <div class="toolbar" style="margin-bottom:14px">${termChips(termFilter)}</div>
   <dl class="kpis">
     <div class="kpi accent"><dt>대기 중</dt><dd>${active.length}<small>명</small></dd></div>
-    <div class="kpi"><dt>대상 강좌</dt><dd>${Object.keys(byCourse).length}<small>개</small></dd></div>
-    <div class="kpi"><dt>취소</dt><dd>${rows.filter((w) => w.state === "취소").length}<small>명</small></dd></div>
+    <div class="kpi"><dt>대상 강좌</dt><dd>${courses.size}<small>개</small></dd></div>
     <div class="kpi"><dt>배정 완료</dt><dd>${rows.filter((w) => w.state === "배정").length}<small>명</small></dd></div>
+    <div class="kpi"><dt>취소</dt><dd>${rows.filter((w) => w.state === "취소").length}<small>명</small></dd></div>
   </dl>
   <section class="card">
     <div class="card-head"><h2>전체 대기 ${rows.length}건</h2>
-      <span class="sub">상태를 바꾸거나 수강생으로 승계할 수 있습니다</span></div>
+      <span class="sub">안내 발송일을 입력하고, 결원이 생기면 배정하세요</span></div>
     <div class="tbl-wrap">${rows.length ? `<table class="tbl">
-      <thead><tr><th>순번</th><th>등록시각</th><th>반</th><th>학번</th><th>이름</th><th>대기 강좌</th>
-        <th>안내발송</th><th>처리</th><th>비고</th><th></th></tr></thead>
-      <tbody>${rows.map((w) => `<tr>
-        <td class="dim">${w.no ?? ""}</td>
-        <td class="dim">${esc(String(w.registeredAt || "").slice(0, 16))}</td>
+      <thead><tr><th>등록시각</th><th>반</th><th>학번</th><th>이름</th><th>대기 강좌</th>
+        <th>안내 발송</th><th>처리</th><th>비고</th><th></th></tr></thead>
+      <tbody>${rows.map((w) => {
+        const done = w.state === "배정";
+        const opts = [...new Set([...WAIT_STATES, w.state].filter(Boolean))];
+        return `<tr${done ? ' style="opacity:.6"' : ""}>
+        <td class="dim">${esc(String(w.registeredAt || "").slice(0, 16)) || "-"}</td>
         <td>${esc(w.classGroup) || "-"}</td><td class="dim">${esc(w.studentId)}</td>
         <td class="strong">${esc(w.name)}</td>
         <td>${esc(w.courseTitle)}${w.courseId ? "" : ' <span class="tag tag-danger">미연결</span>'}</td>
-        <td class="dim">${w.notifiedAt ? C.fmt(w.notifiedAt) : "-"}</td>
+        <td><input type="date" class="inp" style="padding:4px 8px;width:140px"
+          value="${esc(w.notifiedAt || "")}" data-notify="${esc(w.id)}"></td>
         <td><select class="inp" style="padding:4px 8px" data-state="${esc(w.id)}">
-          ${WAIT_STATES.map((s) => `<option ${w.state === s ? "selected" : ""}>${s}</option>`).join("")}
+          ${opts.map((s) => `<option ${w.state === s ? "selected" : ""}>${esc(s)}</option>`).join("")}
         </select></td>
         <td class="dim">${esc(w.memo) || ""}</td>
-        <td><button class="btn btn-sm btn-pri" data-promote="${esc(w.id)}"
-          ${w.courseId && w.state !== "배정" ? "" : "disabled"}>승계</button></td>
-      </tr>`).join("")}</tbody></table>` : emptyBox("대기자가 없습니다.", "")}
+        <td>${done
+          ? `<span class="tag tag-ok">${w.assignedAt ? C.fmt(w.assignedAt) + " 배정" : "배정됨"}</span>`
+          : `<button class="btn btn-sm btn-pri" data-assign="${esc(w.id)}" ${w.courseId ? "" : "disabled"}>배정</button>`}</td>
+      </tr>`;
+      }).join("")}</tbody></table>` : emptyBox("대기자가 없습니다.", "위 버튼으로 추가하거나 엑셀을 올리세요.")}
     </div>
   </section>`;
 
+  $("#w-add").onclick = () => waitAddDrawer();
+  $("#w-upload").onclick = openWaitUpload;
+
+  host().querySelectorAll("[data-notify]").forEach((inp) => inp.addEventListener("change", async () => {
+    await S.saveWait(inp.dataset.notify, { notifiedAt: inp.value || null });
+    toast(inp.value ? "안내 발송일을 기록했습니다." : "안내 발송일을 지웠습니다.");
+  }));
+
   host().querySelectorAll("[data-state]").forEach((sel) => sel.addEventListener("change", async () => {
-    await S.saveWait(sel.dataset.state, { state: sel.value });
+    const w = S.state.waitlist.find((x) => x.id === sel.dataset.state);
+    if (sel.value === "배정") {
+      sel.value = w.state;                       // 배정은 확인 창을 거쳐 처리
+      assignDrawer(w.id);
+      return;
+    }
+    await S.saveWait(w.id, { state: sel.value });
     toast("처리 상태를 변경했습니다.");
   }));
-  host().querySelectorAll("[data-promote]").forEach((b) => b.addEventListener("click", async () => {
-    const w = S.state.waitlist.find((x) => x.id === b.dataset.promote);
-    if (!confirm(`${w.name} 학생을 '${w.courseTitle}' 수강생으로 옮깁니다. 계속할까요?`)) return;
-    try { await S.promoteWait(w); toast("수강생으로 승계했습니다. 결제 안내를 발송하세요."); }
-    catch (e) { toast(e.message); }
-  }));
+
+  host().querySelectorAll("[data-assign]").forEach((b) =>
+    b.addEventListener("click", () => assignDrawer(b.dataset.assign)));
+}
+
+/** 대기자 → 명단 배정 확인 창 */
+function assignDrawer(waitId) {
+  const w = S.state.waitlist.find((x) => x.id === waitId);
+  const c = S.state.courses.find((x) => x.id === w.courseId);
+  const dup = S.state.enrollments.find((e) => e.studentId === w.studentId && e.courseId === w.courseId);
+
+  const d = drawer("대기자 배정", `${w.name} · ${c?.title || w.courseTitle}`, `
+    ${dup ? `<div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
+      <div>이미 이 강좌에 <b>${esc(C.normStatus(dup.status))}</b> 상태로 등록된 학생입니다. 진행하면 덮어써집니다.</div></div>` : ""}
+    <dl class="dl">
+      <dt>학번</dt><dd>${esc(w.studentId)}</dd>
+      <dt>반</dt><dd>${esc(w.classGroup) || "-"}</dd>
+      <dt>기수</dt><dd>${esc(c?.term) || "-"}</dd>
+      <dt>과목</dt><dd>${esc(c?.subject) || "-"}</dd>
+      <dt>요일·시간</dt><dd>${esc([c?.day1, c?.time1].filter(Boolean).join(" ")) || "-"}</dd>
+      <dt>수강료</dt><dd>${C.won(c?.fee?.total)}</dd>
+    </dl>
+    <label class="field"><span>시작 회차</span>
+      <select class="inp" id="w-start" style="width:100%"></select>
+      <span id="w-startinfo" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
+    <label class="field"><span>상태</span>
+      <select class="inp" id="w-status" style="width:100%">
+        <option value="신청">신청 (결제 전)</option><option value="수강">수강 (결제 완료)</option>
+      </select></label>
+    <button class="btn btn-pri" id="w-go" style="width:100%;justify-content:center;margin-top:6px">명단으로 배정</button>
+    <p style="font-size:12px;color:var(--muted);margin:10px 0 0">
+      배정하면 특강학생명단에 추가되고, 대기 상태는 '배정'으로 바뀝니다.</p>`);
+
+  const sel = $("#w-start", d), info = $("#w-startinfo", d);
+  const list = c?.sessions || [];
+  if (!list.length) {
+    sel.innerHTML = '<option value="1">1회차</option>';
+    info.textContent = "회차 정보가 없는 강좌입니다.";
+  } else {
+    const today = C.iso(new Date());
+    const next = list.find((x) => !x.canceled && x.date >= today) || list[0];
+    sel.innerHTML = list.map((x) => `<option value="${x.no}" ${x.no === next.no ? "selected" : ""}>
+      ${x.no}회차 · ${C.fmt(x.date)}${x.canceled ? " (휴강)" : ""}</option>`).join("");
+    info.textContent = `오늘 기준 다음 수업은 ${next.no}회차입니다. 남은 수업 ${
+      list.filter((x) => !x.canceled && x.no >= next.no).length}회.`;
+  }
+
+  $("#w-go", d).onclick = async (ev) => {
+    ev.target.disabled = true; ev.target.textContent = "배정 중…";
+    try {
+      await S.assignWait({ ...w, term: c?.term || null }, {
+        courseId: w.courseId,
+        startSession: Number(sel.value) || 1,
+        status: $("#w-status", d).value,
+      });
+      closeDrawer();
+      toast(`${w.name} 학생을 명단으로 배정했습니다.`);
+    } catch (err) {
+      toast("배정하지 못했습니다: " + err.message);
+      ev.target.disabled = false; ev.target.textContent = "명단으로 배정";
+    }
+  };
+}
+
+/** 대기자 직접 추가 */
+function waitAddDrawer() {
+  const courses = S.state.courses.slice()
+    .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term));
+  const now = new Date();
+  const localNow = `${C.iso(now)}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+  const d = drawer("대기자 추가", "결원 발생 시 등록 순서대로 배정됩니다", `
+    <label class="field"><span>대기 강좌</span>
+      <select class="inp" id="n-course" style="width:100%">
+        <option value="">— 선택 —</option>
+        ${courses.map((c) => `<option value="${esc(c.id)}">[${esc(c.term)}] ${esc(c.title)}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>등록시각</span>
+      <input class="inp" type="datetime-local" id="n-at" value="${localNow}" style="width:100%"></label>
+    <label class="field"><span>학번</span>
+      <input class="inp" id="n-sid" style="width:100%" inputmode="numeric" autocomplete="off"></label>
+    <div id="n-who" style="margin:-6px 0 14px;font-size:13px"></div>
+    <label class="field"><span>이름</span><input class="inp" id="n-name" style="width:100%" autocomplete="off"></label>
+    <label class="field"><span>반</span><input class="inp" id="n-class" style="width:100%" autocomplete="off"></label>
+    <label class="field"><span>비고</span><input class="inp" id="n-memo" style="width:100%" autocomplete="off"></label>
+    <button class="btn btn-pri" id="n-go" style="width:100%;justify-content:center">추가하기</button>
+    <div id="n-log" style="margin-top:16px;font-size:13px;color:var(--muted)"></div>`);
+
+  const el = (s) => $(s, d);
+  const added = [];
+  el("#n-sid").addEventListener("input", () => {
+    const st = S.state.students.find((x) => x.id === el("#n-sid").value.trim());
+    el("#n-who").innerHTML = st
+      ? `<span class="tag tag-teal">${esc(st.name || "")}</span> <span class="dim" style="margin-left:6px">${esc(st.classGroup) || "-"}반</span>`
+      : "";
+    if (st) { el("#n-name").value = st.name || ""; el("#n-class").value = st.classGroup || ""; }
+  });
+
+  el("#n-go").onclick = async (ev) => {
+    const cid = el("#n-course").value, sid = el("#n-sid").value.trim(), name = el("#n-name").value.trim();
+    if (!cid) return toast("대기 강좌를 선택하세요.");
+    if (!sid) return toast("학번을 입력하세요.");
+    if (!name) return toast("이름을 입력하세요.");
+    const c = S.state.courses.find((x) => x.id === cid);
+    ev.target.disabled = true; ev.target.textContent = "추가하는 중…";
+    try {
+      await S.saveWait(`${sid}__${cid}`, {
+        id: `${sid}__${cid}`, studentId: sid, name,
+        classGroup: el("#n-class").value.trim() || null,
+        courseId: cid, courseTitle: c.title,
+        registeredAt: (el("#n-at").value || "").replace("T", " "),
+        notifiedAt: null, state: "유지",
+        memo: el("#n-memo").value.trim() || null, source: "manual",
+      });
+      added.unshift(`${name} · ${c.title}`);
+      el("#n-log").innerHTML = `<b style="color:var(--ok)">추가 ${added.length}건</b><br>`
+        + added.slice(0, 6).map((t) => esc(t)).join("<br>");
+      ["#n-sid", "#n-name", "#n-class", "#n-memo"].forEach((s) => { el(s).value = ""; });
+      el("#n-who").innerHTML = ""; el("#n-sid").focus();
+      toast(`${name} 학생을 대기자로 추가했습니다.`);
+    } catch (err) {
+      toast("추가하지 못했습니다: " + err.message);
+    } finally {
+      ev.target.disabled = false; ev.target.textContent = "추가하기";
+    }
+  };
+  el("#n-sid").focus();
+}
+
+/** 대기자 명단 엑셀 업로드 */
+function openWaitUpload() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".xlsx,.xls";
+  inp.onchange = async () => {
+    const file = inp.files[0]; if (!file) return;
+    try {
+      const XLSX = await loadSheetJs();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false });
+      const hi = grid.findIndex((r) => (r || []).some((c) => String(c).trim() === "학번"));
+      if (hi < 0) throw new Error("'학번' 헤더를 찾을 수 없습니다. 대기자 접수 명단 양식인지 확인하세요.");
+      const head = grid[hi].map((x) => String(x ?? "").trim());
+      const col = (n) => head.indexOf(n);
+      const parsed = [];
+      for (let r = hi + 1; r < grid.length; r++) {
+        const row = grid[r] || [];
+        const sid = String(row[col("학번")] ?? "").trim();
+        if (!sid) continue;
+        const title = String(row[col("특강명")] ?? "").trim();
+        parsed.push({
+          studentId: sid,
+          name: String(row[col("이름")] ?? "").trim(),
+          classGroup: String(row[col("반")] ?? "").trim() || null,
+          season: col("과정") >= 0 ? String(row[col("과정")] ?? "").trim() || null : null,
+          registeredAt: String(row[col("등록시간")] ?? "").trim().slice(0, 16),
+          courseTitle: title,
+          course: findCourseByTitle(title),
+        });
+      }
+      previewWaitUpload(parsed, file.name);
+    } catch (err) { toast(err.message); }
+  };
+  inp.click();
+}
+
+function previewWaitUpload(parsed, filename) {
+  const ok = parsed.filter((p) => p.course);
+  const bad = parsed.filter((p) => !p.course);
+  const news = ok.filter((p) => !S.state.waitlist.some((w) => w.studentId === p.studentId && w.courseId === p.course.id));
+
+  const d = drawer("대기자 명단 불러오기", filename, `
+    ${bad.length ? `<div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
+      <div>강좌명이 매칭되지 않은 ${bad.length}건은 제외됩니다: ${esc([...new Set(bad.map((b) => b.courseTitle))].join(", "))}</div></div>` : ""}
+    <dl class="dl">
+      <dt>읽은 건수</dt><dd>${parsed.length}건</dd>
+      <dt>강좌 매칭</dt><dd>${ok.length}건</dd>
+      <dt>신규 추가</dt><dd class="strong">${news.length}건</dd>
+      <dt>이미 등록</dt><dd>${ok.length - news.length}건</dd>
+    </dl>
+    <div class="tbl-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><tbody>
+      ${news.slice(0, 100).map((p) => `<tr><td>${esc(p.classGroup)}</td><td class="strong">${esc(p.name)}</td>
+        <td class="dim">${esc(p.studentId)}</td><td>${esc(p.course.title)}</td></tr>`).join("")
+        || '<tr><td class="dim">추가할 신규 건이 없습니다.</td></tr>'}
+    </tbody></table></div>
+    <button class="btn btn-pri" id="w-apply" style="width:100%;justify-content:center;margin-top:16px"
+      ${news.length ? "" : "disabled"}>${news.length}건 추가하기</button>`);
+
+  $("#w-apply", d).onclick = async (ev) => {
+    ev.target.disabled = true; ev.target.textContent = "추가하는 중…";
+    try {
+      await S.bulkSet("waitlist", news.map((p) => ({
+        id: `${p.studentId}__${p.course.id}`, studentId: p.studentId, name: p.name,
+        classGroup: p.classGroup, season: p.season,
+        courseId: p.course.id, courseTitle: p.course.title,
+        registeredAt: p.registeredAt || null, notifiedAt: null,
+        state: "유지", memo: null, source: "excel-upload",
+      })));
+      closeDrawer(); toast(`${news.length}건을 추가했습니다.`);
+    } catch (err) { toast("추가하지 못했습니다: " + err.message); ev.target.disabled = false; }
+  };
 }
 
 // ════════════════════════════════════════════════════════════════
