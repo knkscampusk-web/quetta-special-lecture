@@ -213,6 +213,52 @@ table.tbl .dim { color: var(--muted-l); }
 }
 .day.skip { background: var(--line-s); color: var(--muted-l); text-decoration: line-through; }
 
+/* 일정 달력 */
+.cal-nav { display: flex; align-items: center; gap: 6px; }
+.cal-nav b { font-size: 15px; font-weight: 800; letter-spacing: -.02em; min-width: 92px; text-align: center; }
+.cal {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr));
+  border: 1px solid var(--line); border-radius: var(--r-card);
+  overflow: hidden; background: var(--card); box-shadow: var(--sh);
+}
+.cal-h {
+  padding: 9px 0; text-align: center; font-size: 12px; font-weight: 700;
+  color: var(--muted); background: #FBFCFD; border-bottom: 1px solid var(--line);
+}
+.cal-h.sun { color: var(--danger); }
+.cal-h.sat { color: var(--peri); }
+.cal-c {
+  min-height: 98px; padding: 6px 6px 8px; cursor: pointer; transition: background .12s;
+  border-right: 1px solid var(--line-s); border-bottom: 1px solid var(--line-s);
+}
+.cal-c:nth-child(7n) { border-right: 0; }
+.cal-c:hover { background: #FAFDFD; }
+.cal-c.out { background: #FAFBFB; }
+.cal-c.today { box-shadow: inset 0 0 0 2px var(--teal); }
+.cal-d { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 5px; }
+.cal-d.sun { color: var(--danger); }
+.cal-d.sat { color: var(--peri); }
+.cal-c.out .cal-d { color: var(--muted-l); }
+.ev {
+  display: block; width: 100%; text-align: left; border: 0; cursor: pointer;
+  font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 6px;
+  margin-bottom: 3px; line-height: 1.35; word-break: keep-all;
+}
+.ev-apply { background: #FCEBF0; color: #A83A5A; }
+.ev-plan  { background: var(--warn-w); color: #8A5A12; }
+.ev-bill  { background: #E9F1FB; color: #2F6DA8; }
+.ev-open  { background: #FDF3D3; color: #856310; }
+.ev-vac   { background: var(--line-s); color: var(--muted); }
+.ev-etc   { background: var(--peri-w); color: #4A5490; }
+.legend { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.legend span { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; }
+
+@media (max-width: 900px) {
+  .cal-c { min-height: 70px; padding: 4px 3px 6px; }
+  .ev { font-size: 10px; padding: 2px 4px; }
+  .cal-h { font-size: 11px; }
+}
+
 .toast {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
   background: var(--ink); color: #fff; padding: 11px 18px; border-radius: 12px;
