@@ -981,43 +981,202 @@ function previewWaitUpload(parsed, filename) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// 5. 수업계획 및 신청일정
+// 5. 수업계획 및 신청일정 (달력)
 // ════════════════════════════════════════════════════════════════
-let scheduleYear = String(new Date().getFullYear());
+const EV_CATS = {
+  신청: "ev-apply", 계획서: "ev-plan", 청구: "ev-bill",
+  개강: "ev-open", 휴가: "ev-vac", 기타: "ev-etc",
+};
+function guessCat(label) {
+  const t = String(label || "");
+  if (/신청/.test(t)) return "신청";
+  if (/계획서|원고|게시/.test(t)) return "계획서";
+  if (/청구/.test(t)) return "청구";
+  if (/개강|종강/.test(t)) return "개강";
+  if (/휴가|출발|복귀|더프/.test(t)) return "휴가";
+  return "기타";
+}
+const catOf = (ev) => (EV_CATS[ev.cat] ? ev.cat : guessCat(ev.label));
+
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth() + 1;   // 1~12
+
+const eventsOf = (year) => (S.state.schedule?.[String(year)] || []).slice();
+const saveYear = (year, list) => S.saveConfig("schedule", {
+  [String(year)]: list.slice().sort((a, b) => a.date.localeCompare(b.date)),
+});
 
 export function viewSchedule() {
-  const sc = S.state.schedule || {};
-  const years = Object.keys(sc).sort();
-  if (!years.includes(scheduleYear)) scheduleYear = years[years.length - 1] || scheduleYear;
+  const years = Object.keys(S.state.schedule || {}).sort();
   const today = C.iso(new Date());
-  const items = (sc[scheduleYear] || []).slice().sort((a, b) => a.date.localeCompare(b.date));
-  const next = items.find((i) => i.date >= today);
+  const items = eventsOf(calYear);
+  const byDate = {};
+  items.forEach((e) => { (byDate[e.date] ||= []).push(e); });
+
+  // 달력 셀 구성 (일요일 시작)
+  const first = new Date(calYear, calMonth - 1, 1);
+  const startIdx = first.getDay();
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(calYear, calMonth - 1, 1 - startIdx + i);
+    cells.push({ date: C.iso(d), out: d.getMonth() !== calMonth - 1, dow: d.getDay() });
+    if (i >= 34 && d.getMonth() !== calMonth - 1 && (i + 1) % 7 === 0) break;
+  }
+  const monthItems = items.filter((e) => e.date.startsWith(`${calYear}-${String(calMonth).padStart(2, "0")}`));
+  const prevYearSame = eventsOf(calYear - 1)
+    .filter((e) => e.date.startsWith(`${calYear - 1}-${String(calMonth).padStart(2, "0")}`));
+  const next = items.find((e) => e.date >= today);
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>수업계획 및 신청일정</h1><p>강의계획서 요청부터 개강까지의 준비 일정입니다.</p></div>
-    <div class="chips">${years.map((y) =>
-      `<button class="chip ${y === scheduleYear ? "on" : ""}" data-year="${y}">${y}</button>`).join("")}</div>
+    <div><h1>수업계획 및 신청일정</h1>
+      <p>날짜를 누르면 일정을 추가·수정할 수 있습니다.${
+        next ? ` 다음 일정: <b>${esc(next.label)}</b> ${C.fmt(next.date)} ${C.dday(next.date, today) || ""}` : ""}</p></div>
+    <div class="toolbar">
+      <div class="cal-nav">
+        <button class="btn btn-sm" id="c-prev" aria-label="이전 달"><i data-lucide="chevron-left"></i></button>
+        <b>${calYear}년 ${calMonth}월</b>
+        <button class="btn btn-sm" id="c-next" aria-label="다음 달"><i data-lucide="chevron-right"></i></button>
+      </div>
+      <button class="btn btn-sm" id="c-today">오늘</button>
+      <select class="inp" id="c-year" style="padding:6px 10px">
+        ${[...new Set([...years, String(calYear)])].sort().map((y) =>
+          `<option ${String(calYear) === y ? "selected" : ""}>${y}</option>`).join("")}
+      </select>
+    </div>
   </div>
-  ${next && scheduleYear === String(new Date().getFullYear()) ? `<div class="card card-pad" style="margin-bottom:16px">
-    <div style="font-size:12px;color:var(--muted);font-weight:600">다음 일정</div>
-    <div style="font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px">
-      ${esc(next.label)} <span class="tl-dday">${C.dday(next.date, today)}</span></div>
-    <div style="color:var(--muted);font-size:13px;margin-top:2px">${C.fmt(next.date)}</div>
-  </div>` : ""}
-  <section class="card card-pad">${items.length ? `<div class="tl">
-    ${items.map((i) => {
-      const past = i.date < today;
-      const dd = C.dday(i.date, today);
-      return `<div class="tl-row ${past ? "past" : ""} ${i === next ? "soon" : ""}">
-        <div class="tl-date">${C.fmt(i.date)}</div>
-        <div class="tl-label">${esc(i.label)}${!past && dd ? `<span class="tl-dday">${dd}</span>` : ""}</div>
+  <div class="legend">
+    ${Object.entries(EV_CATS).map(([k, cls]) => `<span class="ev ${cls}" style="display:inline-block;width:auto;margin:0">${k}</span>`).join("")}
+  </div>
+  <div class="cal">
+    ${["일", "월", "화", "수", "목", "금", "토"].map((d, i) =>
+      `<div class="cal-h ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${d}</div>`).join("")}
+    ${cells.map((c) => {
+      const evs = byDate[c.date] || [];
+      return `<div class="cal-c ${c.out ? "out" : ""} ${c.date === today ? "today" : ""}" data-day="${c.date}">
+        <div class="cal-d ${c.dow === 0 ? "sun" : c.dow === 6 ? "sat" : ""}">${+c.date.slice(8, 10)}</div>
+        ${evs.map((e, i) => `<button class="ev ${EV_CATS[catOf(e)]}" data-ev="${c.date}|${i}"
+          title="${esc(e.label)}">${esc(e.label)}</button>`).join("")}
       </div>`;
-    }).join("")}</div>` : emptyBox("등록된 일정이 없습니다.", "")}
-  </section>`;
+    }).join("")}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px">
+    <section class="card card-pad">
+      <h2 style="font-size:13px;margin:0 0 10px">${calYear}년 ${calMonth}월 일정 ${monthItems.length}건</h2>
+      ${monthItems.length ? monthItems.map((e) => `<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0">
+        <span class="tl-date" style="min-width:64px">${C.fmt(e.date)}</span>
+        <span style="font-weight:600;font-size:13px">${esc(e.label)}</span></div>`).join("")
+        : '<p style="color:var(--muted);margin:0;font-size:13px">등록된 일정이 없습니다.</p>'}
+    </section>
+    <section class="card card-pad">
+      <h2 style="font-size:13px;margin:0 0 10px">${calYear - 1}년 ${calMonth}월 (전년 비교)</h2>
+      ${prevYearSame.length ? prevYearSame.map((e) => `<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;opacity:.75">
+        <span class="tl-date" style="min-width:64px">${C.fmt(e.date)}</span>
+        <span style="font-weight:600;font-size:13px">${esc(e.label)}</span></div>`).join("")
+        : '<p style="color:var(--muted);margin:0;font-size:13px">전년 기록이 없습니다.</p>'}
+    </section>
+  </div>`;
 
-  host().querySelectorAll("[data-year]").forEach((b) =>
-    b.addEventListener("click", () => { scheduleYear = b.dataset.year; render("schedule"); }));
+  const move = (delta) => {
+    let m = calMonth + delta, y = calYear;
+    if (m > 12) { m = 1; y++; } if (m < 1) { m = 12; y--; }
+    calMonth = m; calYear = y; render("schedule");
+  };
+  $("#c-prev").onclick = () => move(-1);
+  $("#c-next").onclick = () => move(1);
+  $("#c-today").onclick = () => {
+    const n = new Date(); calYear = n.getFullYear(); calMonth = n.getMonth() + 1; render("schedule");
+  };
+  $("#c-year").onchange = (ev) => { calYear = Number(ev.target.value); render("schedule"); };
+
+  host().querySelectorAll("[data-ev]").forEach((b) => b.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    dayDrawer(b.dataset.ev.split("|")[0]);
+  }));
+  host().querySelectorAll("[data-day]").forEach((c) =>
+    c.addEventListener("click", () => dayDrawer(c.dataset.day)));
+}
+
+/** 날짜별 일정 편집 */
+function dayDrawer(date) {
+  const year = Number(date.slice(0, 4));
+  const list = eventsOf(year);
+  const mine = list.map((e, i) => ({ e, i })).filter(({ e }) => e.date === date);
+
+  const d = drawer(`${C.fmt(date)} 일정`, `${year}년 · 등록 ${mine.length}건`, `
+    <div id="d-list" style="margin-bottom:18px">
+      ${mine.length ? mine.map(({ e, i }) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-s)">
+        <span class="ev ${EV_CATS[catOf(e)]}" style="display:inline-block;width:auto;margin:0;flex:none">${esc(catOf(e))}</span>
+        <span style="flex:1;font-weight:600;font-size:13px">${esc(e.label)}</span>
+        <button class="btn btn-sm" data-edit="${i}">수정</button>
+        <button class="btn btn-sm btn-danger" data-del="${i}">삭제</button>
+      </div>`).join("")
+      : '<p style="color:var(--muted);margin:0;font-size:13px">등록된 일정이 없습니다.</p>'}
+    </div>
+
+    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px" id="d-formtitle">일정 추가</h4>
+    <label class="field"><span>날짜</span>
+      <input class="inp" type="date" id="d-date" value="${date}" style="width:100%"></label>
+    <label class="field"><span>내용</span>
+      <input class="inp" id="d-label" style="width:100%" placeholder="예: 1차 신청 마감" autocomplete="off"></label>
+    <label class="field"><span>분류</span>
+      <select class="inp" id="d-cat" style="width:100%">
+        ${Object.keys(EV_CATS).map((k) => `<option>${k}</option>`).join("")}
+      </select></label>
+    <button class="btn btn-pri" id="d-save" style="width:100%;justify-content:center">추가하기</button>`);
+
+  let editIdx = null;
+  const el = (s) => $(s, d);
+
+  el("#d-label").addEventListener("input", () => {
+    if (editIdx === null) el("#d-cat").value = guessCat(el("#d-label").value);
+  });
+
+  d.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
+    editIdx = Number(b.dataset.edit);
+    const e = list[editIdx];
+    el("#d-date").value = e.date; el("#d-label").value = e.label;
+    el("#d-cat").value = catOf(e);
+    el("#d-formtitle").textContent = "일정 수정";
+    el("#d-save").textContent = "수정 저장";
+    el("#d-label").focus();
+  }));
+
+  d.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
+    const i = Number(b.dataset.del);
+    if (!confirm(`'${list[i].label}' 일정을 삭제합니다. 계속할까요?`)) return;
+    const next = list.filter((_, k) => k !== i);
+    try {
+      await saveYear(year, next);
+      closeDrawer(); toast("일정을 삭제했습니다.");
+    } catch (err) { toast("삭제하지 못했습니다: " + err.message); }
+  }));
+
+  el("#d-save").onclick = async (ev) => {
+    const newDate = el("#d-date").value, label = el("#d-label").value.trim();
+    if (!newDate) return toast("날짜를 선택하세요.");
+    if (!label) return toast("내용을 입력하세요.");
+    const rec = { date: newDate, label, cat: el("#d-cat").value };
+    ev.target.disabled = true; ev.target.textContent = "저장 중…";
+    try {
+      const newYear = Number(newDate.slice(0, 4));
+      if (editIdx !== null && newYear !== year) {
+        // 연도가 바뀌면 기존 연도에서 빼고 새 연도에 넣습니다
+        await saveYear(year, list.filter((_, k) => k !== editIdx));
+        await saveYear(newYear, [...eventsOf(newYear), rec]);
+      } else if (editIdx !== null) {
+        await saveYear(year, list.map((e, k) => (k === editIdx ? rec : e)));
+      } else {
+        await saveYear(newYear, [...eventsOf(newYear), rec]);
+      }
+      closeDrawer();
+      toast(editIdx !== null ? "일정을 수정했습니다." : "일정을 추가했습니다.");
+    } catch (err) {
+      toast("저장하지 못했습니다: " + err.message);
+      ev.target.disabled = false; ev.target.textContent = editIdx !== null ? "수정 저장" : "추가하기";
+    }
+  };
+  el("#d-label").focus();
 }
 
 // ════════════════════════════════════════════════════════════════
