@@ -1305,7 +1305,6 @@ export function viewCalc() {
   const legacy = !years.length && Object.keys(cal).length > 0;
   const y = calYearSel;
   const today = C.iso(new Date());
-  const cur = currentTerm();
   const notes = yearData(y).cellNotes || {};
   const dirty = Object.keys(calEdits).length;
 
@@ -1345,31 +1344,18 @@ export function viewCalc() {
       ${terms.map((t) => `<td class="cnt ${termClass(t)}">${counts[t]?.[dow] || 0}회</td>`).join("")}
     </tr>`).join("");
 
-    // 주차별 대표 기수 → 연속 구간을 묶어 헤더 행으로
-    const owner = weeks.map((w) => {
-      const tally = {};
-      C.DAYS.forEach((dow) => {
-        const v = cellVal(y, w.dates[dow]);
-        if (v && TERMS.includes(v)) tally[v] = (tally[v] || 0) + 1;
-      });
-      return Object.entries(tally).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+    // 주차를 '월' 단위로 묶은 헤더 (기수가 아니라 주차 기준)
+    const monthRuns = [];
+    weeks.forEach((w) => {
+      const m = w.label.split("월")[0] + "월";
+      const last = monthRuns[monthRuns.length - 1];
+      if (last && last.m === m) last.span++;
+      else monthRuns.push({ m, span: 1 });
     });
-    const runs = [];
-    owner.forEach((t) => {
-      const last = runs[runs.length - 1];
-      if (last && last.term === t) last.span++;
-      else runs.push({ term: t, span: 1 });
-    });
-    const groupRow = runs.some((r) => r.term)
-      ? `<tr><th class="dow" rowspan="2">요일</th>
-          ${runs.map((r) => `<th class="${r.term ? termClass(r.term) : ""}" colspan="${r.span}">${
-            r.term ? esc(r.term) + (r.term === cur ? " · 진행 중" : "") : ""}</th>`).join("")}
-          ${terms.map((t) => `<th class="${termClass(t)}" rowspan="2">${esc(t)}<br>회차</th>`).join("")}
-        </tr><tr>${weeks.map((w) => `<th>${esc(w.short)}</th>`).join("")}</tr>`
-      : `<tr><th class="dow">요일</th>
-          ${weeks.map((w) => `<th>${esc(w.short)}</th>`).join("")}
-          ${terms.map((t) => `<th class="${termClass(t)}">${esc(t)}<br>회차</th>`).join("")}
-        </tr>`;
+    const head = `<tr><th class="dow" rowspan="2">요일</th>
+        ${monthRuns.map((r) => `<th class="mth" colspan="${r.span}">${esc(r.m)}</th>`).join("")}
+        ${terms.map((t) => `<th class="${termClass(t)}" rowspan="2">${esc(t)}<br>회차</th>`).join("")}
+      </tr><tr>${weeks.map((w) => `<th>${esc(w.short.split(" ")[1])}</th>`).join("")}</tr>`;
 
     const dates = (kind) => Object.entries({ ...storedCells(y), ...calEdits })
       .filter(([d, v]) => v === kind && d >= C.iso(new Date(y, b.from - 1, 1))
@@ -1380,7 +1366,7 @@ export function viewCalc() {
       <h2 style="font-size:14px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px">
         ${esc(b.title)} <span style="font-weight:600;color:var(--muted);font-size:12px">· ${weeks.length}주</span></h2>
       <div class="mx-wrap"><table class="mx">
-        <thead>${groupRow}</thead>
+        <thead>${head}</thead>
         <tbody>${rows}</tbody>
       </table></div>
       <div class="card card-pad" style="margin-top:10px">
