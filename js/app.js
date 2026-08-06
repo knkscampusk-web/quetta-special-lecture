@@ -1,5 +1,5 @@
-import * as S from "./store.js";
-import { render, toast } from "./views.js";
+import * as S from "./store.js?v=3";
+import { render, toast } from "./views.js?v=3";
 
 const $ = (s) => document.querySelector(s);
 let subscribed = false;

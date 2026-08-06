@@ -1,5 +1,5 @@
 // 수업일 · 교습비 계산 + 집계 파생값
-import { APP } from "./config.js";
+import { APP } from "./config.js?v=3";
 
 export const DAYS = ["월", "화", "수", "목", "금", "토", "일"];
 const pad = (n) => String(n).padStart(2, "0");

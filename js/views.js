@@ -1,6 +1,6 @@
 // 화면 렌더링
-import * as S from "./store.js";
-import * as C from "./calc.js";
+import * as S from "./store.js?v=3";
+import * as C from "./calc.js?v=3";
 
 const $ = (s, r = document) => r.querySelector(s);
 export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
