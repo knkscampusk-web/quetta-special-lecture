@@ -8,6 +8,40 @@ export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
 const host = () => $("#view");
 const TERMS = ["제로", "1기", "2기", "3기", "4기"];
 let termFilter = null;
+let termInit = false;
+
+/** 기수별 수업 기간 (최초 개강 ~ 마지막 회차) */
+function termRanges() {
+  const r = {};
+  S.state.courses.forEach((c) => {
+    (c.sessions || []).forEach((s) => {
+      if (!s.date) return;
+      const cur = (r[c.term] ||= { min: s.date, max: s.date });
+      if (s.date < cur.min) cur.min = s.date;
+      if (s.date > cur.max) cur.max = s.date;
+    });
+  });
+  return r;
+}
+
+/** 오늘 기준 진행 중인 기수. 없으면 가장 가까운 다음 기수, 그것도 없으면 마지막 기수 */
+export function currentTerm() {
+  const today = C.iso(new Date());
+  const r = termRanges();
+  const have = TERMS.filter((t) => r[t]);
+  const running = have.find((t) => r[t].min <= today && today <= r[t].max);
+  if (running) return running;
+  const upcoming = have.filter((t) => r[t].min > today).sort((a, b) => r[a].min.localeCompare(r[b].min));
+  if (upcoming.length) return upcoming[0];
+  return have.length ? have[have.length - 1] : null;
+}
+
+/** 데이터가 처음 도착했을 때 진행 중 기수로 한 번만 고정 */
+function ensureTermFilter() {
+  if (termInit || !S.state.courses.length) return;
+  termInit = true;
+  termFilter = currentTerm();
+}
 
 export function toast(msg) {
   const t = document.createElement("div");
@@ -38,10 +72,15 @@ export function closeDrawer() {
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
-const termChips = (active) => `<div class="chips">
+const termChips = (active) => {
+  const cur = currentTerm();
+  return `<div class="chips">
   <button class="chip ${active === null ? "on" : ""}" data-term="">전체</button>
-  ${TERMS.map((t) => `<button class="chip ${active === t ? "on" : ""}" data-term="${t}">${t}</button>`).join("")}
+  ${TERMS.map((t) => `<button class="chip ${active === t ? "on" : ""}" data-term="${t}">${t}${
+    t === cur ? '<span title="진행 중" style="display:inline-block;width:5px;height:5px;border-radius:99px;background:currentColor;vertical-align:middle;margin-left:5px;opacity:.7"></span>' : ""
+  }</button>`).join("")}
 </div>`;
+};
 
 
 const STATUS_TAG = { "수강": "tag-ok", "신청": "tag-warn", "취소": "tag-neutral", "환불": "tag-danger" };
@@ -1006,12 +1045,30 @@ const saveYear = (year, list) => S.saveConfig("schedule", {
   [String(year)]: list.slice().sort((a, b) => a.date.localeCompare(b.date)),
 });
 
+/** 기간 일정을 날짜별로 펼침. 반환: { 날짜: [{ev, idx, isStart}] } */
+function expandByDate(list) {
+  const map = {};
+  list.forEach((ev, idx) => {
+    if (!ev.date) return;
+    const end = ev.end && ev.end >= ev.date ? ev.end : ev.date;
+    let cur = C.parse(ev.date), guard = 0;
+    while (C.iso(cur) <= end && guard++ < 400) {
+      const key = C.iso(cur);
+      (map[key] ||= []).push({ ev, idx, isStart: key === ev.date });
+      cur.setDate(cur.getDate() + 1);
+    }
+  });
+  return map;
+}
+
+const rangeText = (ev) => (ev.end && ev.end !== ev.date
+  ? `${C.fmt(ev.date)} ~ ${C.fmt(ev.end)}` : C.fmt(ev.date));
+
 export function viewSchedule() {
   const years = Object.keys(S.state.schedule || {}).sort();
   const today = C.iso(new Date());
   const items = eventsOf(calYear);
-  const byDate = {};
-  items.forEach((e) => { (byDate[e.date] ||= []).push(e); });
+  const byDate = expandByDate(items);
 
   // 달력 셀 구성 (일요일 시작)
   const first = new Date(calYear, calMonth - 1, 1);
@@ -1022,15 +1079,20 @@ export function viewSchedule() {
     cells.push({ date: C.iso(d), out: d.getMonth() !== calMonth - 1, dow: d.getDay() });
     if (i >= 34 && d.getMonth() !== calMonth - 1 && (i + 1) % 7 === 0) break;
   }
-  const monthItems = items.filter((e) => e.date.startsWith(`${calYear}-${String(calMonth).padStart(2, "0")}`));
+  const mPrefix = `${calYear}-${String(calMonth).padStart(2, "0")}`;
+  const overlaps = (e, prefix) => {
+    const end = e.end && e.end >= e.date ? e.end : e.date;
+    return e.date.slice(0, 7) <= prefix && end.slice(0, 7) >= prefix;
+  };
+  const monthItems = items.filter((e) => overlaps(e, mPrefix));
   const prevYearSame = eventsOf(calYear - 1)
-    .filter((e) => e.date.startsWith(`${calYear - 1}-${String(calMonth).padStart(2, "0")}`));
+    .filter((e) => overlaps(e, `${calYear - 1}-${String(calMonth).padStart(2, "0")}`));
   const next = items.find((e) => e.date >= today);
 
   host().innerHTML = `
   <div class="page-head">
     <div><h1>수업계획 및 신청일정</h1>
-      <p>날짜를 누르면 일정을 추가·수정할 수 있습니다.${
+      <p>날짜를 누르면 일정을 추가·수정할 수 있습니다. 여러 날에 걸친 일정은 종료일을 넣으세요.${
         next ? ` 다음 일정: <b>${esc(next.label)}</b> ${C.fmt(next.date)} ${C.dday(next.date, today) || ""}` : ""}</p></div>
     <div class="toolbar">
       <div class="cal-nav">
@@ -1055,8 +1117,16 @@ export function viewSchedule() {
       const evs = byDate[c.date] || [];
       return `<div class="cal-c ${c.out ? "out" : ""} ${c.date === today ? "today" : ""}" data-day="${c.date}">
         <div class="cal-d ${c.dow === 0 ? "sun" : c.dow === 6 ? "sat" : ""}">${+c.date.slice(8, 10)}</div>
-        ${evs.map((e, i) => `<button class="ev ${EV_CATS[catOf(e)]}" data-ev="${c.date}|${i}"
-          title="${esc(e.label)}">${esc(e.label)}</button>`).join("")}
+        ${evs.map(({ ev, isStart }) => {
+          // 시작일 또는 주의 첫날에만 제목을 쓰고, 나머지 날은 색 띠로 이어 표시
+          const showLabel = isStart || c.dow === 0;
+          const span = ev.end && ev.end !== ev.date;
+          return showLabel
+            ? `<button class="ev ${EV_CATS[catOf(ev)]}" data-ev="${c.date}"
+                 title="${esc(ev.label)} · ${esc(rangeText(ev))}">${span && !isStart ? "↳ " : ""}${esc(ev.label)}</button>`
+            : `<button class="ev ${EV_CATS[catOf(ev)]}" data-ev="${c.date}" aria-label="${esc(ev.label)} 계속"
+                 title="${esc(ev.label)} · ${esc(rangeText(ev))}" style="height:7px;padding:0"></button>`;
+        }).join("")}
       </div>`;
     }).join("")}
   </div>
@@ -1064,14 +1134,14 @@ export function viewSchedule() {
     <section class="card card-pad">
       <h2 style="font-size:13px;margin:0 0 10px">${calYear}년 ${calMonth}월 일정 ${monthItems.length}건</h2>
       ${monthItems.length ? monthItems.map((e) => `<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0">
-        <span class="tl-date" style="min-width:64px">${C.fmt(e.date)}</span>
+        <span class="tl-date" style="min-width:112px">${rangeText(e)}</span>
         <span style="font-weight:600;font-size:13px">${esc(e.label)}</span></div>`).join("")
         : '<p style="color:var(--muted);margin:0;font-size:13px">등록된 일정이 없습니다.</p>'}
     </section>
     <section class="card card-pad">
       <h2 style="font-size:13px;margin:0 0 10px">${calYear - 1}년 ${calMonth}월 (전년 비교)</h2>
       ${prevYearSame.length ? prevYearSame.map((e) => `<div style="display:flex;gap:8px;align-items:baseline;padding:4px 0;opacity:.75">
-        <span class="tl-date" style="min-width:64px">${C.fmt(e.date)}</span>
+        <span class="tl-date" style="min-width:112px">${rangeText(e)}</span>
         <span style="font-weight:600;font-size:13px">${esc(e.label)}</span></div>`).join("")
         : '<p style="color:var(--muted);margin:0;font-size:13px">전년 기록이 없습니다.</p>'}
     </section>
@@ -1101,13 +1171,19 @@ export function viewSchedule() {
 function dayDrawer(date) {
   const year = Number(date.slice(0, 4));
   const list = eventsOf(year);
-  const mine = list.map((e, i) => ({ e, i })).filter(({ e }) => e.date === date);
+  const mine = list.map((e, i) => ({ e, i })).filter(({ e }) => {
+    const end = e.end && e.end >= e.date ? e.end : e.date;
+    return e.date <= date && date <= end;
+  });
 
-  const d = drawer(`${C.fmt(date)} 일정`, `${year}년 · 등록 ${mine.length}건`, `
+  const d = drawer(`${C.fmt(date)} 일정`, `${year}년 · 이 날 포함 ${mine.length}건`, `
     <div id="d-list" style="margin-bottom:18px">
       ${mine.length ? mine.map(({ e, i }) => `<div style="display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line-s)">
         <span class="ev ${EV_CATS[catOf(e)]}" style="display:inline-block;width:auto;margin:0;flex:none">${esc(catOf(e))}</span>
-        <span style="flex:1;font-weight:600;font-size:13px">${esc(e.label)}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:13px">${esc(e.label)}</div>
+          ${e.end && e.end !== e.date ? `<div class="dim" style="font-size:11px">${esc(rangeText(e))}</div>` : ""}
+        </div>
         <button class="btn btn-sm" data-edit="${i}">수정</button>
         <button class="btn btn-sm btn-danger" data-del="${i}">삭제</button>
       </div>`).join("")
@@ -1115,8 +1191,13 @@ function dayDrawer(date) {
     </div>
 
     <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px" id="d-formtitle">일정 추가</h4>
-    <label class="field"><span>날짜</span>
-      <input class="inp" type="date" id="d-date" value="${date}" style="width:100%"></label>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <label class="field" style="margin:0"><span>시작일</span>
+        <input class="inp" type="date" id="d-date" value="${date}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>종료일 (선택)</span>
+        <input class="inp" type="date" id="d-end" style="width:100%"></label>
+    </div>
+    <p id="d-span" style="font-size:12px;color:var(--muted);margin:6px 0 14px">하루 일정입니다. 여러 날에 걸치면 종료일을 넣으세요.</p>
     <label class="field"><span>내용</span>
       <input class="inp" id="d-label" style="width:100%" placeholder="예: 1차 신청 마감" autocomplete="off"></label>
     <label class="field"><span>분류</span>
@@ -1128,6 +1209,17 @@ function dayDrawer(date) {
   let editIdx = null;
   const el = (s) => $(s, d);
 
+  const paintSpan = () => {
+    const a = el("#d-date").value, b = el("#d-end").value;
+    const info = el("#d-span");
+    if (!b || b === a) { info.textContent = "하루 일정입니다. 여러 날에 걸치면 종료일을 넣으세요."; return; }
+    if (b < a) { info.innerHTML = '<span style="color:var(--danger)">종료일이 시작일보다 앞섭니다.</span>'; return; }
+    const days = Math.round((C.parse(b) - C.parse(a)) / 86400000) + 1;
+    info.textContent = `${C.fmt(a)} ~ ${C.fmt(b)} · ${days}일 일정`;
+  };
+  el("#d-date").addEventListener("change", paintSpan);
+  el("#d-end").addEventListener("change", paintSpan);
+
   el("#d-label").addEventListener("input", () => {
     if (editIdx === null) el("#d-cat").value = guessCat(el("#d-label").value);
   });
@@ -1135,33 +1227,39 @@ function dayDrawer(date) {
   d.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => {
     editIdx = Number(b.dataset.edit);
     const e = list[editIdx];
-    el("#d-date").value = e.date; el("#d-label").value = e.label;
+    el("#d-date").value = e.date;
+    el("#d-end").value = e.end && e.end !== e.date ? e.end : "";
+    el("#d-label").value = e.label;
     el("#d-cat").value = catOf(e);
     el("#d-formtitle").textContent = "일정 수정";
     el("#d-save").textContent = "수정 저장";
+    paintSpan();
     el("#d-label").focus();
   }));
 
   d.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", async () => {
     const i = Number(b.dataset.del);
     if (!confirm(`'${list[i].label}' 일정을 삭제합니다. 계속할까요?`)) return;
-    const next = list.filter((_, k) => k !== i);
     try {
-      await saveYear(year, next);
+      await saveYear(year, list.filter((_, k) => k !== i));
       closeDrawer(); toast("일정을 삭제했습니다.");
     } catch (err) { toast("삭제하지 못했습니다: " + err.message); }
   }));
 
   el("#d-save").onclick = async (ev) => {
-    const newDate = el("#d-date").value, label = el("#d-label").value.trim();
-    if (!newDate) return toast("날짜를 선택하세요.");
+    const newDate = el("#d-date").value;
+    const endRaw = el("#d-end").value;
+    const label = el("#d-label").value.trim();
+    if (!newDate) return toast("시작일을 선택하세요.");
     if (!label) return toast("내용을 입력하세요.");
+    if (endRaw && endRaw < newDate) return toast("종료일이 시작일보다 앞섭니다.");
     const rec = { date: newDate, label, cat: el("#d-cat").value };
+    if (endRaw && endRaw !== newDate) rec.end = endRaw;
+
     ev.target.disabled = true; ev.target.textContent = "저장 중…";
     try {
       const newYear = Number(newDate.slice(0, 4));
       if (editIdx !== null && newYear !== year) {
-        // 연도가 바뀌면 기존 연도에서 빼고 새 연도에 넣습니다
         await saveYear(year, list.filter((_, k) => k !== editIdx));
         await saveYear(newYear, [...eventsOf(newYear), rec]);
       } else if (editIdx !== null) {
@@ -1271,6 +1369,7 @@ export function render(name = current) {
     host().innerHTML = `<div class="empty"><b>데이터를 불러오는 중입니다.</b>잠시만 기다려 주세요.</div>`;
     return;
   }
+  ensureTermFilter();
   VIEWS[name]?.();
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("on", b.dataset.view === name));
   host().querySelectorAll("[data-term]").forEach((b) => b.addEventListener("click", () => {
