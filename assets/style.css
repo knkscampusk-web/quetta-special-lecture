@@ -276,7 +276,8 @@ table.mx .dow {
 table.mx td.dow { z-index: 1; }
 table.mx .sun { color: var(--danger); }
 table.mx .sat { color: var(--peri); }
-table.mx td.cnt { background: #FBFCFD; font-weight: 800; min-width: 52px; }
+/* 회차 칸은 기수 색을 그대로 씁니다 (배경을 덮으면 흰 글씨가 안 보임) */
+table.mx td.cnt { font-weight: 800; min-width: 52px; }
 table.mx td.cnt small { display: block; font-weight: 600; font-size: 9px; color: var(--danger); }
 .mx-note { display: block; font-size: 9px; opacity: .8; font-weight: 600; }
 /* 기수별 색상 — 제로 보라 / 1기 초록 / 2기 파랑 / 3기 노랑 / 4기 남색 */

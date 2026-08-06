@@ -1325,7 +1325,7 @@ export function viewCalc() {
         if (v && TERMS.includes(v)) {
           usedTerms.add(v);
           counts[v] = counts[v] || {};
-          counts[v][dow] = (counts[v][dow] || 0) + 1;
+          (counts[v][dow] = counts[v][dow] || []).push(date);
         }
         const note = notes[date];
         return `<td class="${valClass(v)} ${date === today ? "mx-today" : ""} ${calBrush !== null ? "mx-paint" : ""}"
@@ -1341,7 +1341,11 @@ export function viewCalc() {
     const rows = body.map(({ di, dow, tds }) => `<tr>
       <td class="dow ${di === 6 ? "sun" : di === 5 ? "sat" : ""}">${dow}</td>
       ${tds}
-      ${terms.map((t) => `<td class="cnt ${termClass(t)}">${counts[t]?.[dow] || 0}회</td>`).join("")}
+      ${terms.map((t) => {
+        const list = counts[t]?.[dow] || [];
+        return `<td class="cnt ${termClass(t)}" title="${esc(t)} ${dow}요일 ${list.length}회 — ${
+          list.map((d) => C.fmt(d)).join(", ") || "없음"}">${list.length}회</td>`;
+      }).join("")}
     </tr>`).join("");
 
     // 주차를 '월' 단위로 묶은 헤더 (기수가 아니라 주차 기준)
