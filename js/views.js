@@ -1278,82 +1278,210 @@ function dayDrawer(date) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// 6. 수업일 계산
+// 6. 수업일 계산 (연간 주간 매트릭스)
 // ════════════════════════════════════════════════════════════════
-const calcForm = { term: "3기", weekday: "화", start: "", count: 8, minutes: 170, book: 0 };
+const MX_CLASS = {
+  모의고사: "s-mock", 정기휴가: "s-vac", 휴강: "s-off", 미운영: "s-none",
+};
+
+/** 기수별 문서에서 블록 단위로 묶기 (한 블록 = 기수 2개가 그리드를 공유) */
+function calBlocks() {
+  const cal = S.state.calendars || {};
+  const seen = new Set(), blocks = [];
+  Object.values(cal).forEach((v) => {
+    if (!v?.grid) return;
+    const terms = v.terms?.length ? v.terms : [v.term];
+    const key = terms.join("|");
+    if (seen.has(key)) return;
+    seen.add(key);
+    blocks.push({
+      terms, weeks: v.weeks || [], grid: v.grid, excepts: v.excepts || {},
+      sheetCount: Object.fromEntries(terms.map((t) => [t, cal[t]?.sessionCount || {}])),
+      footnote: terms.map((t) => cal[t]?.footnote).find(Boolean) || null,
+      legacy: !v.terms,          // 예전 형식(색상 정보 없음) 여부
+    });
+  });
+  return blocks;
+}
+
+/** 색상 정보가 없는 예전 데이터용 대체 판정 */
+function fallbackStatus(cell, excepts) {
+  if (!cell.date) return null;
+  const ex = C.exceptDates({ excepts });
+  const kind = ex.get(cell.date);
+  if (kind === "모의고사") return "모의고사";
+  if (kind === "정기휴가") return "정기휴가";
+  if (kind === "휴강") return "휴강";
+  return "수업";
+}
 
 export function viewCalc() {
-  const cals = S.state.calendars || {};
-  const terms = Object.keys(cals).length ? Object.keys(cals) : ["1기", "2기", "3기", "4기"];
-  if (!terms.includes(calcForm.term)) calcForm.term = terms[0];
-  const cal = cals[calcForm.term];
-  const ex = C.exceptDates(cal);
-  const sessions = C.buildSessions({
-    startDate: calcForm.start, weekday: calcForm.weekday,
-    count: Number(calcForm.count), excepts: ex,
-  });
-  const real = sessions.filter((s) => !s.skipped);
-  const tuition = C.tuitionOf(Number(calcForm.minutes), real.length);
-  const total = (tuition || 0) + Number(calcForm.book || 0);
-  const exList = [...ex.entries()].sort();
+  const blocks = calBlocks();
+  const today = C.iso(new Date());
+  const cur = currentTerm();
+
+  if (!blocks.length) {
+    host().innerHTML = `
+      <div class="page-head"><div><h1>수업일 계산</h1>
+        <p>기수별 주간 일정과 수업 가능일을 한눈에 봅니다.</p></div>
+        <button class="btn" id="cal-load"><i data-lucide="upload"></i>일정 파일 불러오기</button></div>
+      ${emptyBox("일정 데이터가 없습니다.", "calendars.json 을 불러오세요.")}`;
+    $("#cal-load").onclick = openCalUpload;
+    return;
+  }
+
+  const legend = `<div class="legend" style="margin-bottom:14px">
+    <span class="ev s-a" style="display:inline-block;width:auto;margin:0">수업일(앞 기수)</span>
+    <span class="ev s-b" style="display:inline-block;width:auto;margin:0">수업일(뒤 기수)</span>
+    <span class="ev s-mock" style="display:inline-block;width:auto;margin:0">모의고사</span>
+    <span class="ev s-vac" style="display:inline-block;width:auto;margin:0">정기휴가</span>
+    <span class="ev s-off" style="display:inline-block;width:auto;margin:0">휴강</span>
+    <span class="ev s-none" style="display:inline-block;width:auto;margin:0">미운영</span>
+  </div>`;
+
+  const renderBlock = (b) => {
+    const cols = b.weeks;
+    // 기수별 열 구간 (자기 주차 목록 기준)
+    const own = b.terms.map((t) => (S.state.calendars[t]?.ownWeeks || []).length);
+    const totals = {};
+    b.terms.forEach((t) => { totals[t] = {}; });
+
+    const body = C.DAYS.map((dow, di) => {
+      const cells = (b.grid[dow] || []).map((cell, ci) => {
+        let st = cell.status;
+        if (!st && b.legacy) st = fallbackStatus(cell, b.excepts);
+        let cls = MX_CLASS[st] || "s-empty";
+        if (st === "수업") {
+          const oi = b.terms.indexOf(cell.owner);
+          cls = oi === 1 ? "s-b" : "s-a";
+          const t = cell.owner || b.terms[0];
+          totals[t] = totals[t] || {};
+          totals[t][dow] = (totals[t][dow] || 0) + 1;
+        }
+        const isToday = cell.date === today;
+        return `<td class="${cls} ${isToday ? "mx-today" : ""}" title="${esc(cols[ci] || "")}${
+          cell.date ? " · " + C.fmt(cell.date) : ""}${st ? " · " + st : ""}${cell.note ? " · " + esc(cell.note) : ""}">
+          ${cell.date ? `${+cell.date.slice(5, 7)}/${+cell.date.slice(8, 10)}` : ""}
+          ${cell.note ? `<span class="mx-note">${esc(cell.note.replace(/\s*\d{1,2}:\d{2}.*$/, ""))}</span>` : ""}
+        </td>`;
+      }).join("");
+      const counts = b.terms.map((t) => {
+        const n = totals[t]?.[dow] || 0;
+        const sheet = String(b.sheetCount[t]?.[dow] || "").match(/\d+/)?.[0];
+        const diff = sheet && String(n) !== sheet;
+        return `<td class="cnt">${n}회${diff ? `<small>시트 ${sheet}회</small>` : ""}</td>`;
+      }).join("");
+      return `<tr>
+        <td class="dow ${di === 6 ? "sun" : di === 5 ? "sat" : ""}">${dow}</td>
+        ${cells}${counts}</tr>`;
+    }).join("");
+
+    return `<section style="margin-bottom:22px">
+      <div class="mx-wrap"><table class="mx">
+        <thead>
+          <tr><th class="dow" rowspan="2">요일</th>
+            ${b.terms.map((t, i) => `<th class="grp ${i ? "b" : ""}" colspan="${own[i] || 1}">${esc(t)}${
+              t === cur ? " · 진행 중" : ""}</th>`).join("")}
+            ${b.terms.map((t, i) => `<th class="grp ${i ? "b" : ""}" rowspan="2">${esc(t)}<br>회차</th>`).join("")}
+          </tr>
+          <tr>${cols.map((w) => `<th>${esc(w.replace("주차", "주"))}</th>`).join("")}</tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)">
+        ${["mock:모의고사", "vacation:정기휴가", "closed:휴강"].map((kv) => {
+          const [k, label] = kv.split(":");
+          const list = b.excepts[k] || [];
+          return list.length ? `<div><b style="color:var(--ink)">${label}</b> ${
+            list.map((d) => C.fmt(d)).join(", ")}</div>` : "";
+        }).join("")}
+      </div>
+      ${b.footnote ? `<p style="font-size:12px;color:var(--muted);white-space:pre-line;margin:8px 0 0">${esc(b.footnote)}</p>` : ""}
+    </section>`;
+  };
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>수업일 계산</h1><p>개강일과 요일을 넣으면 모의고사·정기휴가·휴강을 빼고 회차와 교습비를 계산합니다.</p></div>
-  </div>
-  <div class="calc-grid">
-    <section class="card card-pad">
-      <label class="field"><span>기수</span>
-        <select class="inp" id="f-term" style="width:100%">
-          ${terms.map((t) => `<option ${calcForm.term === t ? "selected" : ""}>${t}</option>`).join("")}
-        </select></label>
-      <label class="field"><span>요일</span>
-        <select class="inp" id="f-day" style="width:100%">
-          ${C.DAYS.map((d) => `<option ${calcForm.weekday === d ? "selected" : ""}>${d}</option>`).join("")}
-        </select></label>
-      <label class="field"><span>개강일</span>
-        <input class="inp" type="date" id="f-start" value="${esc(calcForm.start)}" style="width:100%"></label>
-      <label class="field"><span>목표 회차</span>
-        <input class="inp" type="number" id="f-count" min="1" max="20" value="${calcForm.count}" style="width:100%"></label>
-      <label class="field"><span>1회 수업시간 (분)</span>
-        <input class="inp" type="number" id="f-min" min="10" step="10" value="${calcForm.minutes}" style="width:100%"></label>
-      <label class="field"><span>교재비 (원)</span>
-        <input class="inp" type="number" id="f-book" min="0" step="1000" value="${calcForm.book}" style="width:100%"></label>
-      <p style="font-size:12px;color:var(--muted);margin:4px 0 0">
-        교습비 = 196원 × 수업시간(분) × 회차</p>
-    </section>
-
-    <div>
-      <dl class="kpis" style="margin-bottom:12px">
-        <div class="kpi accent"><dt>실제 회차</dt><dd>${real.length}<small>회</small></dd></div>
-        <div class="kpi"><dt>건너뛴 주</dt><dd>${sessions.length - real.length}<small>주</small></dd></div>
-        <div class="kpi"><dt>교습비</dt><dd style="font-size:19px">${C.won(tuition)}</dd></div>
-        <div class="kpi"><dt>총액</dt><dd style="font-size:19px">${C.won(total)}</dd></div>
-      </dl>
-      <section class="card card-pad" style="margin-bottom:12px">
-        <h2 style="font-size:14px;margin:0 0 4px">수업일</h2>
-        ${calcForm.start ? `<div class="daylist">${sessions.map((s) =>
-          `<span class="day ${s.skipped ? "skip" : ""}" title="${esc(s.reason || "")}">
-            ${s.skipped ? s.reason : s.no + "회"} ${C.fmt(s.date)}</span>`).join("")}</div>
-          ${real.length ? `<p style="font-size:12px;color:var(--muted);margin:12px 0 0">
-            ${C.fmt(real[0].date)} 개강 · ${C.fmt(real[real.length - 1].date)} 종강</p>` : ""}`
-          : '<p style="color:var(--muted);margin:6px 0 0">개강일을 선택하면 회차가 계산됩니다.</p>'}
-      </section>
-      <section class="card card-pad">
-        <h2 style="font-size:14px;margin:0 0 8px">${esc(calcForm.term)} 제외일</h2>
-        ${exList.length ? `<div class="daylist">${exList.map(([d, k]) =>
-          `<span class="day skip">${k} ${C.fmt(d)}</span>`).join("")}</div>`
-          : '<p style="color:var(--muted);margin:0">등록된 제외일이 없습니다.</p>'}
-        ${cal?.footnote ? `<p style="font-size:12px;color:var(--muted);white-space:pre-line;margin:14px 0 0">${esc(cal.footnote)}</p>` : ""}
-      </section>
+    <div><h1>수업일 계산</h1>
+      <p>기수별 주간 일정입니다. 색으로 수업 가능일·모의고사·휴가·휴강을 구분합니다.</p></div>
+    <div class="toolbar">
+      <button class="btn" id="cal-load"><i data-lucide="upload"></i>일정 파일 불러오기</button>
+      <button class="btn" id="cal-fee"><i data-lucide="calculator"></i>교습비 계산</button>
     </div>
-  </div>`;
+  </div>
+  ${legend}
+  ${blocks.map(renderBlock).join("")}`;
 
-  const bind = (id, key, ev = "change") => $(id).addEventListener(ev, (e) => {
-    calcForm[key] = e.target.value; render("calc");
-  });
-  bind("#f-term", "term"); bind("#f-day", "weekday"); bind("#f-start", "start");
-  bind("#f-count", "count", "input"); bind("#f-min", "minutes", "input"); bind("#f-book", "book", "input");
+  $("#cal-load").onclick = openCalUpload;
+  $("#cal-fee").onclick = feeDrawer;
+}
+
+/** calendars.json 불러오기 */
+function openCalUpload() {
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = ".json,application/json";
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const terms = Object.keys(data);
+      if (!terms.length || !data[terms[0]]?.grid) throw new Error("calendars.json 형식이 아닙니다.");
+      if (!confirm(`기수 ${terms.join(", ")} 일정을 덮어씁니다. 계속할까요?`)) return;
+      await S.saveConfig("calendars", data);
+      toast("일정을 갱신했습니다.");
+    } catch (e) { toast("불러오지 못했습니다: " + e.message); }
+  };
+  inp.click();
+}
+
+/** 교습비 계산 (회차는 매트릭스 집계값을 기본값으로) */
+function feeDrawer() {
+  const cal = S.state.calendars || {};
+  const terms = Object.keys(cal);
+  if (!terms.length) return toast("일정 데이터가 없습니다.");
+  const t0 = terms.includes(currentTerm()) ? currentTerm() : terms[0];
+
+  const d = drawer("교습비 계산", "196원 × 수업시간(분) × 회차", `
+    <label class="field"><span>기수</span>
+      <select class="inp" id="f-term" style="width:100%">
+        ${terms.map((t) => `<option ${t === t0 ? "selected" : ""}>${t}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>요일</span>
+      <select class="inp" id="f-day" style="width:100%">
+        ${C.DAYS.map((x) => `<option>${x}</option>`).join("")}
+      </select></label>
+    <label class="field"><span>회차</span>
+      <input class="inp" type="number" id="f-cnt" min="1" max="20" style="width:100%">
+      <span id="f-src" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
+    <label class="field"><span>1회 수업시간 (분)</span>
+      <input class="inp" type="number" id="f-min" min="10" step="10" value="170" style="width:100%"></label>
+    <label class="field"><span>교재비 (원)</span>
+      <input class="inp" type="number" id="f-book" min="0" step="1000" value="0" style="width:100%"></label>
+    <dl class="dl" style="margin-top:18px">
+      <dt>교습비</dt><dd class="strong" id="f-tui">-</dd>
+      <dt>총액</dt><dd class="strong" id="f-tot" style="font-size:17px;color:var(--teal-d)">-</dd>
+    </dl>`);
+
+  const el = (s) => $(s, d);
+  const autoCount = () => {
+    const t = el("#f-term").value, dow = el("#f-day").value;
+    const v = cal[t];
+    const n = (v?.grid?.[dow] || []).filter((c) => c.status === "수업" && c.owner === t).length;
+    const sheet = String(v?.sessionCount?.[dow] || "").match(/\d+/)?.[0];
+    el("#f-cnt").value = n || sheet || 8;
+    el("#f-src").textContent = n
+      ? `일정표 집계 ${n}회${sheet && String(n) !== sheet ? ` (시트 기록은 ${sheet}회)` : ""}`
+      : sheet ? `시트 기록 ${sheet}회` : "집계값이 없어 직접 입력하세요.";
+    paint();
+  };
+  const paint = () => {
+    const tui = C.tuitionOf(Number(el("#f-min").value), Number(el("#f-cnt").value));
+    el("#f-tui").textContent = C.won(tui);
+    el("#f-tot").textContent = C.won((tui || 0) + Number(el("#f-book").value || 0));
+  };
+  ["#f-term", "#f-day"].forEach((s) => el(s).addEventListener("change", autoCount));
+  ["#f-cnt", "#f-min", "#f-book"].forEach((s) => el(s).addEventListener("input", paint));
+  autoCount();
 }
 
 // ── 라우팅 ──────────────────────────────────────────────────────
