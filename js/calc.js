@@ -66,6 +66,32 @@ export function normStatus(s) {
   return s || "신청";
 }
 
+/**
+ * 월요일 시작 주 목록. 주차 라벨의 달은 그 주 '토요일'이 속한 달을 따릅니다.
+ * (예: 3/30~4/5 주는 토요일이 4/4이므로 '4월 1주차')
+ */
+export function weeksOfRange(year, fromMonth, toMonth) {
+  const out = [];
+  const counts = {};
+  const sat = new Date(year, fromMonth - 1, 1);
+  while (sat.getDay() !== 6) sat.setDate(sat.getDate() + 1);
+  while (sat.getFullYear() === year && sat.getMonth() + 1 <= toMonth) {
+    const m = sat.getMonth() + 1;
+    counts[m] = (counts[m] || 0) + 1;
+    const monday = new Date(sat);
+    monday.setDate(sat.getDate() - 5);
+    const dates = {};
+    DAYS.forEach((d, i) => {
+      const x = new Date(monday);
+      x.setDate(monday.getDate() + i);
+      dates[d] = iso(x);
+    });
+    out.push({ label: `${m}월 ${counts[m]}주차`, short: `${m}월 ${counts[m]}주`, dates });
+    sat.setDate(sat.getDate() + 7);
+  }
+  return out;
+}
+
 /** 기준일까지 해당 학생이 실제로 들은 수업 횟수 (휴강 제외, 시작 회차 반영) */
 export function sessionsTaken(course, asOf = iso(new Date()), startNo = 1) {
   return (course?.sessions || [])
