@@ -305,23 +305,46 @@ td.mx-paint:hover { outline: 2px solid var(--teal); outline-offset: -2px; }
   font-family: inherit;
 }
 
+.print-title { display: none; }
+
 @media print {
-  @page { size: A4 landscape; margin: 8mm; }
+  @page { size: A4 landscape; margin: 6mm; }
   html, body { background: #fff !important; }
-  .side, .page-head .toolbar, .no-print, .drawer, .drawer-bg, .toast { display: none !important; }
+
+  /* 인쇄에서 뺄 것 */
+  .side, .page-head, .no-print, .drawer, .drawer-bg, .toast, .banner { display: none !important; }
   .shell { display: block !important; }
   .main { padding: 0 !important; }
-  .mx-wrap { overflow: visible !important; border: 0 !important; box-shadow: none !important; }
-  table.mx { font-size: 7.5px; page-break-inside: avoid; }
-  table.mx th, table.mx td { padding: 2px 3px; }
-  table.mx .dow { position: static !important; }
-  .card { box-shadow: none !important; break-inside: avoid; }
-  section { break-inside: avoid; }
-  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-}
 
-@media (max-width: 900px) {
-  table.mx th, table.mx td { padding: 3px 3px; font-size: 10px; }
+  .print-title {
+    display: block; font-size: 11pt; font-weight: 800; letter-spacing: -.02em;
+    margin: 0 0 3mm; padding-bottom: 1.5mm; border-bottom: 1.2pt solid #231F20;
+  }
+
+  /* 두 블록을 한 장에 */
+  #cal-print { display: block; }
+  #cal-print > section { margin: 0 0 3mm !important; break-inside: avoid; page-break-inside: avoid; }
+  #cal-print > section:last-child { margin-bottom: 0 !important; page-break-after: avoid; }
+  #cal-print h2 { font-size: 8.5pt !important; margin: 0 0 1.2mm !important; }
+
+  .mx-wrap { overflow: visible !important; border: 0 !important; box-shadow: none !important; }
+  table.mx { font-size: 6.6pt; width: 100%; table-layout: fixed; }
+  table.mx th, table.mx td { padding: 0.7mm 0.3mm !important; line-height: 1.15; }
+  table.mx thead th { font-size: 5.8pt; }
+  table.mx thead th.mth { font-size: 6.4pt; }
+  table.mx .dow { position: static !important; width: 7mm; }
+  table.mx td.cnt { width: 9mm; }
+  table.mx td.cnt small { display: none; }
+  .mx-note { display: none; }
+  td.mx-today { box-shadow: inset 0 0 0 1.2pt #231F20; }
+
+  /* 비고는 한 줄로 압축 */
+  #cal-print .card { border: 0 !important; box-shadow: none !important; padding: 1mm 0 0 !important; }
+  #cal-print .card h3 { display: none; }
+  #cal-print .card > div { padding: 0 !important; font-size: 6.4pt !important; line-height: 1.3; }
+  #cal-print .card .ev { font-size: 5.8pt !important; padding: 0.2mm 1mm !important; min-width: 11mm !important; }
+
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
 
 .toast {
