@@ -280,14 +280,46 @@ table.mx .sat { color: var(--peri); }
 table.mx td.cnt { background: #FBFCFD; font-weight: 800; min-width: 52px; }
 table.mx td.cnt small { display: block; font-weight: 600; font-size: 9px; color: var(--danger); }
 .mx-note { display: block; font-size: 9px; opacity: .8; font-weight: 600; }
-.s-a { background: #E2F5F2; color: #0B6B60; }
-.s-b { background: #EEEFFB; color: #46508C; }
+/* 기수별 색상 */
+.t0 { background: #F1EBFA; color: #5B4A8A; }
+.t1 { background: #E1F5F2; color: #0A6A5F; }
+.t2 { background: #EEEFFB; color: #46508C; }
+.t3 { background: #E3F0FC; color: #2C6BA6; }
+.t4 { background: #E8F4E2; color: #3E7A2D; }
 .s-mock { background: #FBE1DD; color: #A93326; font-weight: 700; }
 .s-vac  { background: #FDEEDC; color: #8A5A12; }
 .s-off  { background: #E9EDEE; color: #66757B; }
 .s-none { background: #F8FAFB; color: #B4BEC3; }
 .s-empty { background: transparent; color: var(--muted-l); }
 td.mx-today { box-shadow: inset 0 0 0 2px var(--ink); font-weight: 800; }
+td.mx-paint { cursor: pointer; }
+td.mx-paint:hover { outline: 2px solid var(--teal); outline-offset: -2px; }
+.brush { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.brush button {
+  border: 1px solid transparent; border-radius: 8px; padding: 5px 11px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.brush button.on { border-color: var(--ink); box-shadow: 0 0 0 2px rgba(35,31,32,.12); }
+.memo {
+  width: 100%; min-height: 66px; padding: 9px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-ctl); resize: vertical; font-size: 13px; line-height: 1.5;
+  font-family: inherit;
+}
+
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  html, body { background: #fff !important; }
+  .side, .page-head .toolbar, .no-print, .drawer, .drawer-bg, .toast { display: none !important; }
+  .shell { display: block !important; }
+  .main { padding: 0 !important; }
+  .mx-wrap { overflow: visible !important; border: 0 !important; box-shadow: none !important; }
+  table.mx { font-size: 7.5px; page-break-inside: avoid; }
+  table.mx th, table.mx td { padding: 2px 3px; }
+  table.mx .dow { position: static !important; }
+  .card { box-shadow: none !important; break-inside: avoid; }
+  section { break-inside: avoid; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+}
 
 @media (max-width: 900px) {
   table.mx th, table.mx td { padding: 3px 3px; font-size: 10px; }
