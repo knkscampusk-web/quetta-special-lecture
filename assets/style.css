@@ -279,16 +279,16 @@ table.mx .sat { color: var(--peri); }
 table.mx td.cnt { background: #FBFCFD; font-weight: 800; min-width: 52px; }
 table.mx td.cnt small { display: block; font-weight: 600; font-size: 9px; color: var(--danger); }
 .mx-note { display: block; font-size: 9px; opacity: .8; font-weight: 600; }
-/* 기수별 색상 */
-.t0 { background: #F1EBFA; color: #5B4A8A; }
-.t1 { background: #E1F5F2; color: #0A6A5F; }
-.t2 { background: #EEEFFB; color: #46508C; }
-.t3 { background: #E3F0FC; color: #2C6BA6; }
-.t4 { background: #E8F4E2; color: #3E7A2D; }
-.s-mock { background: #FBE1DD; color: #A93326; font-weight: 700; }
-.s-vac  { background: #FDEEDC; color: #8A5A12; }
-.s-off  { background: #E9EDEE; color: #66757B; }
-.s-none { background: #F8FAFB; color: #B4BEC3; }
+/* 기수별 색상 — 제로 보라 / 1기 초록 / 2기 파랑 / 3기 노랑 / 4기 남색 */
+.t0 { background: #D9C7F0; color: #452A78; }
+.t1 { background: #A9D08E; color: #1E4A15; }
+.t2 { background: #A4C2F4; color: #14365C; }
+.t3 { background: #FFE082; color: #6A4E00; }
+.t4 { background: #2F4B87; color: #FFFFFF; }
+.s-mock { background: #D63B32; color: #FFFFFF; font-weight: 700; }
+.s-vac  { background: #F8CBAD; color: #7C4E0C; }
+.s-off  { background: #232323; color: #FFFFFF; }
+.s-none { background: #F1F3F4; color: #78848A; }
 .s-empty { background: transparent; color: var(--muted-l); }
 td.mx-today { box-shadow: inset 0 0 0 2px var(--ink); font-weight: 800; }
 td.mx-paint { cursor: pointer; }
