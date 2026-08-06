@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaV3Provider }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app-check.js";
-import { firebaseConfig, recaptchaSiteKey } from "./config.js";
+import { firebaseConfig, recaptchaSiteKey, loginDomain } from "./config.js";
 
 const app = initializeApp(firebaseConfig);
 if (recaptchaSiteKey) {
@@ -25,7 +25,15 @@ export const db = getFirestore(app);
 // 브라우저 종료 시 세션 만료 — 공용 계정이라 탭을 닫으면 로그아웃되게 둡니다.
 setPersistence(auth, browserSessionPersistence);
 
-export const login = (email, pw) => signInWithEmailAndPassword(auth, email, pw);
+/** 아이디를 이메일 형식으로 변환. '@'가 있으면 그대로 사용합니다. */
+export const toLoginEmail = (id) => {
+  const v = String(id || "").trim();
+  return v.includes("@") ? v : `${v}@${loginDomain}`;
+};
+/** 화면 표시용 — 내부 도메인은 감춥니다. */
+export const displayId = (email) => String(email || "").replace(`@${loginDomain}`, "");
+
+export const login = (id, pw) => signInWithEmailAndPassword(auth, toLoginEmail(id), pw);
 export const logout = () => signOut(auth);
 export const watchAuth = (cb) => onAuthStateChanged(auth, cb);
 

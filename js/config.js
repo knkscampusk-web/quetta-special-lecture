@@ -19,6 +19,13 @@ export const firebaseConfig = {
 // App Check(reCAPTCHA v3) 사이트 키. 미사용 시 빈 문자열로 두세요.
 export const recaptchaSiteKey = "";
 
+// 아이디 로그인용 도메인.
+// Firebase 인증은 내부적으로 이메일 형식을 요구하므로, 아이디 뒤에 이 도메인을 자동으로 붙입니다.
+// 예: 아이디 'quetta' -> quetta@quetta.local 로 로그인
+// Firebase 콘솔에서 사용자를 만들 때도 같은 형식(아이디@quetta.local)으로 만드세요.
+// '@'가 포함된 값을 입력하면 그대로 이메일로 처리하므로 기존 이메일 계정도 함께 쓸 수 있습니다.
+export const loginDomain = "quetta.local";
+
 export const APP = {
   title: "특강 MASTER",
   academy: "강남대성기숙 QUETTA",

@@ -19,8 +19,10 @@ $("#gateForm").addEventListener("submit", async (e) => {
     await S.login($("#email").value.trim(), $("#pw").value);
   } catch (err) {
     const map = {
-      "auth/invalid-credential": "이메일 또는 비밀번호가 맞지 않습니다.",
-      "auth/invalid-email": "이메일 형식을 확인하세요.",
+      "auth/invalid-credential": "아이디 또는 비밀번호가 맞지 않습니다.",
+      "auth/invalid-email": "아이디에 사용할 수 없는 문자가 있습니다.",
+      "auth/user-not-found": "아이디 또는 비밀번호가 맞지 않습니다.",
+      "auth/wrong-password": "아이디 또는 비밀번호가 맞지 않습니다.",
       "auth/too-many-requests": "시도가 많아 잠시 막혔습니다. 잠시 후 다시 시도하세요.",
       "auth/network-request-failed": "네트워크에 연결할 수 없습니다.",
     };
@@ -46,7 +48,7 @@ S.watchAuth(async (user) => {
   }
   $("#gate").hidden = true;
   $("#shell").hidden = false;
-  $("#whoami").textContent = user.email;
+  $("#whoami").textContent = S.displayId(user.email);
   if (!subscribed) {
     subscribed = true;
     S.onChange(() => render());
