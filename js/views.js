@@ -1383,6 +1383,7 @@ export function viewCalc() {
   };
 
   host().innerHTML = `
+  <div class="print-title">${y}년 수업일 계산 · 강남대성기숙 QUETTA</div>
   <div class="page-head">
     <div><h1>수업일 계산</h1>
       <p>주차별 수업 가능일과 모의고사·휴가·휴강을 한눈에 봅니다. 색칠 도구를 고르면 날짜를 직접 지정할 수 있습니다.</p></div>
@@ -1393,12 +1394,11 @@ export function viewCalc() {
       </select>
       <button class="btn" id="cal-fee"><i data-lucide="calculator"></i>교습비 계산</button>
       <button class="btn" id="cal-pdf"><i data-lucide="printer"></i>PDF 저장</button>
-      <button class="btn" id="cal-load"><i data-lucide="upload"></i>파일 불러오기</button>
     </div>
   </div>
 
   ${legacy ? `<div class="banner banner-warn no-print"><i data-lucide="alert-triangle"></i>
-    <div>예전 형식의 일정 데이터입니다. 새 <b>calendars.json</b> 을 불러오면 색상과 주차가 채워집니다.</div></div>` : ""}
+    <div>예전 형식의 일정 데이터가 남아 있습니다. 아래 표에서 직접 색칠하면 새 형식으로 저장됩니다.</div></div>` : ""}
 
   <div class="card card-pad no-print" style="margin-bottom:16px">
     <div class="brush">
@@ -1416,9 +1416,9 @@ export function viewCalc() {
     </div>
   </div>
 
-  ${BLOCKS.map(renderBlock).join("")}
+  <div id="cal-print">${BLOCKS.map(renderBlock).join("")}</div>
 
-  <section class="card card-pad">
+  <section class="card card-pad no-print">
     <h3 style="font-size:12px;color:var(--muted);margin:0 0 8px">메모</h3>
     <textarea class="memo" id="cal-memo" placeholder="시험 일정, 방학 등 참고 사항">${esc(yearData(y).note || "")}</textarea>
     <button class="btn btn-sm no-print" id="cal-memo-save" style="margin-top:8px">메모 저장</button>
@@ -1433,7 +1433,6 @@ export function viewCalc() {
   };
   $("#cal-fee").onclick = feeDrawer;
   $("#cal-pdf").onclick = () => window.print();
-  $("#cal-load").onclick = openCalUpload;
 
   host().querySelectorAll("[data-brush]").forEach((b) => b.addEventListener("click", () => {
     const v = b.dataset.brush;
@@ -1482,25 +1481,6 @@ export function viewCalc() {
     } catch (e) { toast("저장하지 못했습니다: " + e.message); }
     finally { ev.target.disabled = false; }
   };
-}
-
-/** calendars.json 불러오기 */
-function openCalUpload() {
-  const inp = document.createElement("input");
-  inp.type = "file"; inp.accept = ".json,application/json";
-  inp.onchange = async () => {
-    const f = inp.files[0]; if (!f) return;
-    try {
-      const data = JSON.parse(await f.text());
-      const years = Object.keys(data).filter((k) => /^\d{4}$/.test(k));
-      if (!years.length) throw new Error("연도별 형식의 calendars.json 이 아닙니다.");
-      if (!confirm(`${years.join(", ")}년 일정을 덮어씁니다. 계속할까요?`)) return;
-      await S.saveConfig("calendars", data);
-      calEdits = {}; calYearSel = Number(years[0]);
-      toast("일정을 갱신했습니다.");
-    } catch (e) { toast("불러오지 못했습니다: " + e.message); }
-  };
-  inp.click();
 }
 
 /** 교습비 계산 */
