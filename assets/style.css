@@ -268,8 +268,7 @@ table.mx th, table.mx td {
   font-variant-numeric: tabular-nums;
 }
 table.mx thead th { background: #FBFCFD; font-weight: 700; color: var(--muted); font-size: 10px; }
-table.mx thead th.grp { background: var(--teal-w); color: var(--teal-d); font-size: 11px; letter-spacing: -.01em; }
-table.mx thead th.grp.b { background: var(--peri-w); color: #4A5490; }
+table.mx thead th.mth { background: #F0F4F5; color: var(--ink); font-size: 11px; font-weight: 800; letter-spacing: -.02em; border-bottom: 1px solid var(--line); }
 table.mx .dow {
   position: sticky; left: 0; z-index: 2; background: #F3F7F8;
   font-weight: 700; color: var(--ink); min-width: 34px;
