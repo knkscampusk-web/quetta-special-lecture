@@ -128,6 +128,20 @@ const statusTag = (raw) => {
   return `<span class="tag ${STATUS_TAG[st] || "tag-neutral"}">${esc(st)}</span>`;
 };
 
+/** 강좌의 전체 수업일을 칩으로. 지난 날은 어둡게, 오늘 수업은 강조 */
+function sessionChips(sessions, today) {
+  const list = sessions || [];
+  if (!list.length) return '<span class="dim">-</span>';
+  return list.map((x) => {
+    const md = `${+x.date.slice(5, 7)}/${+x.date.slice(8, 10)}`;
+    const cls = x.canceled ? "sd-off"
+      : x.date === today ? "sd-now"
+      : x.date < today ? "sd-past" : "sd-next";
+    return `<span class="sd ${cls}" title="${x.no}회차 · ${C.fmt(x.date)}${
+      x.canceled ? " · 휴강" : x.date === today ? " · 오늘 수업" : x.date < today ? " · 완료" : ""}">${md}</span>`;
+  }).join("");
+}
+
 const emptyBox = (title, hint) =>
   `<div class="empty"><b>${esc(title)}</b>${hint ? esc(hint) : ""}</div>`;
 
@@ -136,6 +150,7 @@ const emptyBox = (title, hint) =>
 // ════════════════════════════════════════════════════════════════
 export function viewDashboard() {
   const { courses, enrollments, waitlist } = S.state;
+  const today = C.iso(new Date());
   const list = courses
     .filter((c) => (!yearFilter || courseYear(c) === yearFilter)
       && (!termFilter || c.term === termFilter))
@@ -173,7 +188,7 @@ export function viewDashboard() {
         <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th>강의실</th>
         <th class="num">인원</th><th class="num">수강</th><th class="num">신청</th>
         <th class="num">취소</th><th class="num">환불</th><th class="num">대기</th>
-        <th>정원</th><th>개강</th><th>회차</th><th>출석부</th>
+        <th>정원</th><th>개강</th><th>회차</th><th>수업일</th>
       </tr></thead><tbody>
       ${list.map((c) => {
         const n = C.countsFor(c.id, enrollments, waitlist);
@@ -197,7 +212,7 @@ export function viewDashboard() {
           <td>${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
           <td>${open ? C.fmt(open) : '<span class="dim">-</span>'}</td>
           <td class="num">${(c.sessions || []).length}</td>
-          <td>${c.attendanceUrl ? `<a href="${esc(c.attendanceUrl)}" target="_blank" rel="noopener">열기</a>` : '<span class="dim">-</span>'}</td>
+          <td class="days">${sessionChips(c.sessions, today)}</td>
         </tr>`;
       }).join("")}
       </tbody></table>` : emptyBox("표시할 강좌가 없습니다.", "기수 필터를 바꾸거나 데이터를 먼저 적재하세요.")}
@@ -226,6 +241,7 @@ function courseDrawer(id) {
       <dt>교습비</dt><dd>${C.won(c.fee?.tuition)}${mins && c.sessions?.length ? ` <span class="dim">· 계산값 ${C.won(C.tuitionOf(mins, c.sessions.length))}</span>` : ""}</dd>
       <dt>교재</dt><dd>${esc(c.textbook?.title) || "없음"}${c.fee?.book ? ` · ${C.won(c.fee.book)}` : ""}</dd>
       <dt>총액</dt><dd class="strong">${C.won(c.fee?.total)}</dd>
+      ${c.attendanceUrl ? `<dt>출석부</dt><dd><a href="${esc(c.attendanceUrl)}" target="_blank" rel="noopener">열기</a></dd>` : ""}
       <dt>현황</dt><dd>인원 ${n.active} (수강 ${n.attending} · 신청 ${n.applied}) · 취소 ${n.canceled} · 환불 ${n.refunded} · 대기 ${n.waiting}</dd>
       ${c.note ? `<dt>특이사항</dt><dd>${esc(c.note)}</dd>` : ""}
     </dl>
