@@ -177,6 +177,17 @@ table.tbl tbody tr.clickable { cursor: pointer; }
 table.tbl .strong { font-weight: 700; }
 table.tbl .dim { color: var(--muted-l); }
 
+/* 현황표 수업일 칩 */
+table.tbl td.days { white-space: normal; min-width: 230px; max-width: 340px; line-height: 1.9; }
+.sd {
+  display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 5px;
+  border-radius: 5px; margin: 0 3px 2px 0; font-variant-numeric: tabular-nums;
+}
+.sd-next { background: var(--teal-w); color: var(--teal-d); }
+.sd-past { background: #5C696F; color: #FFFFFF; }
+.sd-now  { background: var(--teal); color: #FFFFFF; box-shadow: 0 0 0 2px rgba(0,178,190,.28); }
+.sd-off  { background: var(--line-s); color: var(--muted-l); text-decoration: line-through; }
+
 .gauge { width: 74px; height: 6px; border-radius: 99px; background: var(--line-s); overflow: hidden; display: inline-block; vertical-align: middle; }
 .gauge i { display: block; height: 100%; background: var(--teal); border-radius: 99px; }
 .gauge i.full { background: var(--warn); }
