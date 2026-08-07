@@ -172,6 +172,7 @@ table.tbl th {
   background: #FBFCFD; position: sticky; top: 0; z-index: 1; border-bottom: 1px solid var(--line);
 }
 table.tbl td.num, table.tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.tbl td.ctr, table.tbl th.ctr { text-align: center; font-variant-numeric: tabular-nums; }
 table.tbl tbody tr:hover { background: #FBFDFD; }
 table.tbl tbody tr.clickable { cursor: pointer; }
 table.tbl .strong { font-weight: 700; }
