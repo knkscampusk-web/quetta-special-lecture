@@ -105,9 +105,8 @@ export function viewDashboard() {
     const n = C.countsFor(c.id, enrollments, waitlist);
     a.active += n.active; a.attending += n.attending; a.applied += n.applied;
     a.canceled += n.canceled; a.refunded += n.refunded; a.waiting += n.waiting;
-    a.revenue += n.attending * (c.fee?.total || 0);
     return a;
-  }, { active: 0, attending: 0, applied: 0, canceled: 0, refunded: 0, waiting: 0, revenue: 0 });
+  }, { active: 0, attending: 0, applied: 0, canceled: 0, refunded: 0, waiting: 0 });
 
   host().innerHTML = `
   <div class="page-head">
@@ -122,7 +121,6 @@ export function viewDashboard() {
     <div class="kpi"><dt>취소</dt><dd>${sum.canceled}<small>건</small></dd></div>
     <div class="kpi"><dt>환불</dt><dd>${sum.refunded}<small>건</small></dd></div>
     <div class="kpi"><dt>대기</dt><dd>${sum.waiting}<small>명</small></dd></div>
-    <div class="kpi"><dt>결제액</dt><dd style="font-size:19px">${C.won(sum.revenue)}</dd></div>
   </dl>
   <section class="card">
     <div class="card-head"><h2>강좌 목록</h2><span class="sub">행을 누르면 상세가 열립니다</span></div>
