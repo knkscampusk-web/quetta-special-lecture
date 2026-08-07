@@ -80,6 +80,9 @@ export function subscribeAll() {
 const stamp = () => ({ updatedAt: serverTimestamp(), updatedBy: auth.currentUser?.email || null });
 
 export const saveCourse = (id, patch) => updateDoc(doc(db, "courses", id), { ...patch, ...stamp() });
+/** 강좌 신규 생성 및 전체 수정 */
+export const saveCourseDoc = (id, data) =>
+  setDoc(doc(db, "courses", id), { ...data, ...stamp() }, { merge: true });
 export const saveEnrollment = (id, patch) => setDoc(doc(db, "enrollments", id), { ...patch, ...stamp() }, { merge: true });
 export const removeEnrollment = (id) => deleteDoc(doc(db, "enrollments", id));
 export const saveWait = (id, patch) => setDoc(doc(db, "waitlist", id), { ...patch, ...stamp() }, { merge: true });

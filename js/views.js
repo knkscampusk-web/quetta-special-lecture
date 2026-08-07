@@ -9,11 +9,28 @@ const host = () => $("#view");
 const TERMS = ["제로", "1기", "2기", "3기", "4기"];
 let termFilter = null;
 let termInit = false;
+let yearFilter = null;
+
+const TERM_CODE = { 제로: "Z", "1기": "1", "2기": "2", "3기": "3", "4기": "4" };
+
+/** 강좌의 연도. year 필드가 없으면 첫 회차 날짜에서 뽑습니다. */
+export const courseYear = (c) =>
+  c?.year ?? (Number(String(c?.sessions?.[0]?.date || "").slice(0, 4)) || null);
+
+/** 수강 건의 연도 (강좌 기준) */
+const enrollYear = (e) =>
+  e?.year ?? courseYear(S.state.courses.find((c) => c.id === e?.courseId));
+
+function allYears() {
+  const set = new Set(S.state.courses.map(courseYear).filter(Boolean));
+  set.add(new Date().getFullYear());
+  return [...set].sort();
+}
 
 /** 기수별 수업 기간 (최초 개강 ~ 마지막 회차) */
 function termRanges() {
   const r = {};
-  S.state.courses.forEach((c) => {
+  S.state.courses.filter((c) => !yearFilter || courseYear(c) === yearFilter).forEach((c) => {
     (c.sessions || []).forEach((s) => {
       if (!s.date) return;
       const cur = (r[c.term] ||= { min: s.date, max: s.date });
@@ -40,6 +57,10 @@ export function currentTerm() {
 function ensureTermFilter() {
   if (termInit || !S.state.courses.length) return;
   termInit = true;
+  const ys = allYears();
+  const now = new Date().getFullYear();
+  yearFilter = ys.includes(now) ? now : ys[ys.length - 1];
+  calYearSel = yearFilter;
   termFilter = currentTerm();
 }
 
@@ -72,6 +93,24 @@ export function closeDrawer() {
 }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
 
+const filterBar = (active) => termChips(active);
+
+/** 사이드바 연도 선택기 — 최근 2개 연도만 보여줍니다. */
+function paintYearPicker() {
+  const sel = document.querySelector("#yearSel");
+  if (!sel) return;
+  const ys = allYears().slice(-2);                 // 최근 2년
+  if (yearFilter && !ys.includes(yearFilter)) yearFilter = ys[ys.length - 1];
+  sel.innerHTML = ys.map((v) =>
+    `<option value="${v}" ${v === yearFilter ? "selected" : ""}>${v}년</option>`).join("");
+  sel.onchange = () => {
+    yearFilter = Number(sel.value);
+    termFilter = currentTerm();
+    calYearSel = yearFilter;                       // 수업일 계산도 함께 이동
+    render();
+  };
+}
+
 const termChips = (active) => {
   const cur = currentTerm();
   return `<div class="chips">
@@ -97,7 +136,9 @@ const emptyBox = (title, hint) =>
 // ════════════════════════════════════════════════════════════════
 export function viewDashboard() {
   const { courses, enrollments, waitlist } = S.state;
-  const list = (termFilter ? courses.filter((c) => c.term === termFilter) : courses)
+  const list = courses
+    .filter((c) => (!yearFilter || courseYear(c) === yearFilter)
+      && (!termFilter || c.term === termFilter))
     .slice().sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term)
       || String(a.subject).localeCompare(b.subject));
 
@@ -111,7 +152,10 @@ export function viewDashboard() {
   host().innerHTML = `
   <div class="page-head">
     <div><h1>현황표</h1><p>기수별 개설 강좌와 신청·수강 현황입니다.</p></div>
-    ${termChips(termFilter)}
+    <div class="toolbar">
+      ${filterBar(termFilter)}
+      <button class="btn btn-pri" id="course-add"><i data-lucide="plus"></i>강좌 추가</button>
+    </div>
   </div>
   <dl class="kpis">
     <div class="kpi"><dt>개설 강좌</dt><dd>${list.length}<small>개</small></dd></div>
@@ -159,6 +203,7 @@ export function viewDashboard() {
       </tbody></table>` : emptyBox("표시할 강좌가 없습니다.", "기수 필터를 바꾸거나 데이터를 먼저 적재하세요.")}
     </div>
   </section>`;
+  $("#course-add").onclick = () => courseFormDrawer(null);
   host().querySelectorAll("[data-course]").forEach((tr) =>
     tr.addEventListener("click", () => courseDrawer(tr.dataset.course)));
 }
@@ -172,7 +217,8 @@ function courseDrawer(id) {
     .map((e) => ({ e, s: S.state.students.find((s) => s.id === e.studentId) }))
     .sort((a, b) => String(a.e.studentId).localeCompare(String(b.e.studentId), "ko", { numeric: true }));
 
-  drawer(c.title, `${c.term} · ${(c.teachers || []).join(", ")}`, `
+  const d = drawer(c.title, `${courseYear(c) || ""} ${c.term} · ${(c.teachers || []).join(", ")}`, `
+    <button class="btn btn-sm" id="course-edit" style="margin-bottom:14px"><i data-lucide="pencil"></i>강좌 수정</button>
     <dl class="dl">
       <dt>강좌 ID</dt><dd><code>${esc(c.id)}</code></dd>
       <dt>요일·시간</dt><dd>${esc([c.day1, c.time1].filter(Boolean).join(" "))}${mins ? ` <span class="dim">(${mins}분)</span>` : ""}</dd>
@@ -195,6 +241,171 @@ function courseDrawer(id) {
         <td class="dim">${e.startSession && e.startSession > 1 ? `${e.startSession}회차부터` : ""}</td>
       </tr>`).join("") || '<tr><td class="dim">등록된 학생이 없습니다.</td></tr>'}
     </tbody></table></div>`);
+  $("#course-edit", d).onclick = () => courseFormDrawer(c.id);
+}
+
+/** 선택 연도의 제외일 (모의고사·정기휴가·휴강) — 수업일 자동 생성에 사용 */
+function exceptsOfYear(year) {
+  const cells = S.state.calendars?.[String(year)]?.cells || {};
+  const m = new Map();
+  Object.entries(cells).forEach(([d, v]) => {
+    if (["모의고사", "정기휴가", "휴강"].includes(v)) m.set(d, v);
+  });
+  return m;
+}
+
+const shortTitle = (t) => String(t || "")
+  .replace(/^［.*?］|^\[.*?\]/, "")
+  .replace(/\(.*?\)/g, "")
+  .replace(/\s+/g, "")
+  .replace(/확률과통계/g, "확통");
+
+/** 강좌 추가 · 수정 */
+function courseFormDrawer(courseId) {
+  const editing = courseId ? S.state.courses.find((x) => x.id === courseId) : null;
+  const y = editing ? (courseYear(editing) || yearFilter) : yearFilter;
+
+  const d = drawer(editing ? "강좌 수정" : "강좌 추가",
+    editing ? editing.id : `${y}년 · 개강일과 회차를 넣으면 수업일이 자동 계산됩니다`, `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <label class="field" style="margin:0"><span>연도</span>
+        <input class="inp" type="number" id="c-year" value="${y}" ${editing ? "disabled" : ""} style="width:100%"></label>
+      <label class="field" style="margin:0"><span>기수</span>
+        <select class="inp" id="c-term" style="width:100%">
+          ${TERMS.map((t) => `<option ${editing?.term === t || (!editing && t === termFilter) ? "selected" : ""}>${t}</option>`).join("")}
+        </select></label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-top:12px">
+      <label class="field" style="margin:0"><span>과목</span>
+        <input class="inp" id="c-subject" value="${esc(editing?.subject || "")}" placeholder="국어" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>강의명</span>
+        <input class="inp" id="c-title" value="${esc(editing?.title || "")}" placeholder="［7월］빌드업 국어" style="width:100%"></label>
+    </div>
+    <label class="field" style="margin-top:12px"><span>담당 선생님 (쉼표로 구분)</span>
+      <input class="inp" id="c-teachers" value="${esc((editing?.teachers || []).join(", "))}" style="width:100%"></label>
+    <div style="display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:10px">
+      <label class="field" style="margin:0"><span>요일</span>
+        <select class="inp" id="c-day" style="width:100%">
+          ${C.DAYS.map((x) => `<option ${String(editing?.day1 || "").startsWith(x) ? "selected" : ""}>${x}</option>`).join("")}
+        </select></label>
+      <label class="field" style="margin:0"><span>시간</span>
+        <input class="inp" id="c-time" value="${esc(editing?.time1 || "")}" placeholder="19:10~22:00" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>강의실</span>
+        <input class="inp" id="c-room" value="${esc(editing?.room || "")}" style="width:100%"></label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+      <label class="field" style="margin:0"><span>개강일</span>
+        <input class="inp" type="date" id="c-start" value="${esc(editing?.sessions?.[0]?.date || "")}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>회차</span>
+        <input class="inp" type="number" id="c-count" min="1" max="20" value="${(editing?.sessions || []).length || 8}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>정원</span>
+        <input class="inp" type="number" id="c-cap" min="0" value="${editing?.cap1 ?? ""}" style="width:100%"></label>
+    </div>
+    <div id="c-sess" style="margin:10px 0 4px"></div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:8px">
+      <label class="field" style="margin:0"><span>교재명</span>
+        <input class="inp" id="c-book" value="${esc(editing?.textbook?.title || "")}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>교재비</span>
+        <input class="inp" type="number" id="c-bookfee" min="0" step="1000" value="${editing?.fee?.book ?? 0}" style="width:100%"></label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
+      <label class="field" style="margin:0"><span>교습비</span>
+        <input class="inp" type="number" id="c-tuition" min="0" step="10" value="${editing?.fee?.tuition ?? ""}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>총액</span>
+        <input class="inp" type="number" id="c-total" min="0" step="10" value="${editing?.fee?.total ?? ""}" style="width:100%"></label>
+    </div>
+    <p id="c-feehint" style="font-size:12px;color:var(--muted);margin:6px 0 12px"></p>
+
+    <label class="field"><span>출석부 링크</span>
+      <input class="inp" id="c-att" value="${esc(editing?.attendanceUrl || "")}" placeholder="https://" style="width:100%"></label>
+    <label class="field"><span>특이사항</span>
+      <input class="inp" id="c-note" value="${esc(editing?.note || "")}" style="width:100%"></label>
+
+    <button class="btn btn-pri" id="c-save" style="width:100%;justify-content:center;margin-top:6px">
+      ${editing ? "수정 저장" : "강좌 추가"}</button>
+    ${editing ? '<p style="font-size:12px;color:var(--muted);margin:10px 0 0">강좌 ID는 바뀌지 않습니다. 이미 등록된 수강생은 그대로 유지됩니다.</p>' : ""}`);
+
+  const el = (s2) => $(s2, d);
+  let sessions = editing?.sessions ? editing.sessions.slice() : [];
+
+  const rebuild = () => {
+    const start = el("#c-start").value;
+    const count = Number(el("#c-count").value);
+    const yr = Number(el("#c-year").value);
+    if (!start || !count) { sessions = []; el("#c-sess").innerHTML = ""; return feeHint(); }
+    const rows = C.buildSessions({
+      startDate: start, weekday: el("#c-day").value, count, excepts: exceptsOfYear(yr),
+    });
+    sessions = rows.filter((r) => !r.skipped).map((r) => ({ no: r.no, date: r.date, canceled: false }));
+    const skipped = rows.filter((r) => r.skipped);
+    el("#c-sess").innerHTML = `<div class="daylist">${rows.map((r) => r.skipped
+      ? `<span class="day skip" title="${esc(r.reason)}">${esc(r.reason)} ${C.fmt(r.date)}</span>`
+      : `<span class="day">${r.no}회 ${C.fmt(r.date)}</span>`).join("")}</div>
+      <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
+        ${sessions.length}회 편성${skipped.length ? ` · ${skipped.length}주 건너뜀` : ""}${
+          sessions.length ? ` · ${C.fmt(sessions[0].date)} 개강, ${C.fmt(sessions[sessions.length - 1].date)} 종강` : ""}</p>`;
+    feeHint();
+  };
+
+  const feeHint = () => {
+    const mins = C.minutesOf(el("#c-time").value);
+    const auto = C.tuitionOf(mins, sessions.length);
+    el("#c-feehint").innerHTML = auto
+      ? `계산값 ${C.won(auto)} (196원 × ${mins}분 × ${sessions.length}회)
+         <button class="btn btn-sm" id="c-apply" type="button" style="margin-left:6px">적용</button>`
+      : "시간과 회차를 넣으면 교습비 계산값이 표시됩니다.";
+    const btn = el("#c-apply");
+    if (btn) btn.onclick = () => {
+      el("#c-tuition").value = auto;
+      el("#c-total").value = auto + Number(el("#c-bookfee").value || 0);
+    };
+  };
+
+  ["#c-start", "#c-count", "#c-day", "#c-year"].forEach((sel) => el(sel).addEventListener("change", rebuild));
+  ["#c-time", "#c-bookfee"].forEach((sel) => el(sel).addEventListener("input", feeHint));
+  rebuild();
+
+  el("#c-save").onclick = async (ev) => {
+    const yr = Number(el("#c-year").value);
+    const term = el("#c-term").value;
+    const subject = el("#c-subject").value.trim();
+    const title = el("#c-title").value.trim();
+    if (!subject) return toast("과목을 입력하세요.");
+    if (!title) return toast("강의명을 입력하세요.");
+    if (!sessions.length) return toast("개강일과 회차를 확인하세요.");
+
+    const id = editing ? editing.id : `${yr}_${TERM_CODE[term]}_${subject}_${shortTitle(title)}`;
+    if (!editing && S.state.courses.some((c) => c.id === id)) {
+      return toast("같은 이름의 강좌가 이미 있습니다. 강의명을 조금 다르게 하세요.");
+    }
+    const tuition = Number(el("#c-tuition").value) || null;
+    const book = Number(el("#c-bookfee").value) || 0;
+
+    ev.target.disabled = true; ev.target.textContent = "저장 중…";
+    try {
+      await S.saveCourseDoc(id, {
+        id, year: yr, term, subject, title,
+        teachers: el("#c-teachers").value.split(",").map((x) => x.trim()).filter(Boolean),
+        day1: el("#c-day").value + "요일", time1: el("#c-time").value.trim() || null,
+        room: el("#c-room").value.trim() || null,
+        cap1: Number(el("#c-cap").value) || null,
+        sessions, closedDates: editing?.closedDates || [],
+        textbook: { title: el("#c-book").value.trim() || null, qty: editing?.textbook?.qty ?? null,
+                    distributeDate: editing?.textbook?.distributeDate ?? null },
+        fee: { tuition, book, total: Number(el("#c-total").value) || ((tuition || 0) + book) },
+        attendanceUrl: el("#c-att").value.trim() || null,
+        note: el("#c-note").value.trim() || null,
+      });
+      closeDrawer();
+      yearFilter = yr; termFilter = term;
+      toast(editing ? "강좌를 수정했습니다." : "강좌를 추가했습니다.");
+      render("dashboard");
+    } catch (err) {
+      toast("저장하지 못했습니다: " + err.message);
+      ev.target.disabled = false; ev.target.textContent = editing ? "수정 저장" : "강좌 추가";
+    }
+  };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -212,6 +423,7 @@ export function viewStudents() {
     })
     .map((e) => ({ e, s: students.find((x) => x.id === e.studentId), c: courses.find((x) => x.id === e.courseId) }))
     .filter(({ e, s, c }) => {
+      if (yearFilter && enrollYear(e) !== yearFilter) return false;
       if (termFilter && e.term !== termFilter) return false;
       if (courseFilter && e.courseId !== courseFilter) return false;
       if (!q) return true;
@@ -221,7 +433,8 @@ export function viewStudents() {
     .sort((a, b) => String(a.e.studentId).localeCompare(String(b.e.studentId), "ko", { numeric: true })
       || String(a.s?.name ?? "").localeCompare(String(b.s?.name ?? ""), "ko"));
 
-  const courseOpts = courses.filter((c) => !termFilter || c.term === termFilter)
+  const courseOpts = courses
+    .filter((c) => (!yearFilter || courseYear(c) === yearFilter) && (!termFilter || c.term === termFilter))
     .map((c) => `<option value="${esc(c.id)}" ${courseFilter === c.id ? "selected" : ""}>${esc(c.term)} · ${esc(c.title)}</option>`).join("");
 
   host().innerHTML = `
@@ -234,7 +447,7 @@ export function viewStudents() {
     </div>
   </div>
   <div class="toolbar" style="margin-bottom:14px">
-    ${termChips(termFilter)}
+    ${filterBar(termFilter)}
     <input class="inp" id="q" placeholder="이름 · 학번 · 반 검색" value="${esc(q)}" style="width:200px">
     <select class="inp" id="st">
       <option value="">신청 + 수강</option>
@@ -334,7 +547,8 @@ function studentDrawer(sid) {
 }
 
 function addEnrollDrawer(preCourseId = courseFilter) {
-  const courses = S.state.courses.slice()
+  const courses = S.state.courses
+    .filter((c) => !yearFilter || courseYear(c) === yearFilter)
     .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term)
       || String(a.subject).localeCompare(b.subject));
   const today = C.iso(new Date());
@@ -452,7 +666,8 @@ function addEnrollDrawer(preCourseId = courseFilter) {
         });
       }
       await S.saveEnrollment(`${sid}__${cid}`, {
-        id: `${sid}__${cid}`, studentId: sid, courseId: cid, term: course.term,
+        id: `${sid}__${cid}`, studentId: sid, courseId: cid,
+        term: course.term, year: courseYear(course),
         payer: el("#a-payer").value || null,
         paidAt: status === "수강" ? el("#a-paid").value : null,
         startSession: Number(el("#a-start").value) || 1,
@@ -642,7 +857,8 @@ function previewRoster(parsed, filename) {
     try {
       await S.bulkSet("enrollments", news.map((r) => ({
         id: `${r.studentId}__${r.course.id}`, studentId: r.studentId, courseId: r.course.id,
-        term: r.course.term, payer: r.payer, paidAt: null, status: "신청",
+        term: r.course.term, year: courseYear(r.course),
+        payer: r.payer, paidAt: null, status: "신청",
         startSession: 1, refund: null, source: "roster-upload",
       })));
       const newStudents = [...new Map(news.map((r) => [r.studentId,
@@ -659,7 +875,8 @@ function previewRoster(parsed, filename) {
 // ════════════════════════════════════════════════════════════════
 export function viewRefunds() {
   const rows = S.state.enrollments.filter((e) => e.status === "환불")
-    .filter((e) => !termFilter || e.term === termFilter)
+    .filter((e) => (!yearFilter || enrollYear(e) === yearFilter)
+      && (!termFilter || e.term === termFilter))
     .map((e) => {
       const c = S.state.courses.find((x) => x.id === e.courseId);
       return { e, c, s: S.state.students.find((x) => x.id === e.studentId), amt: C.refundAmount(c, e.refund) };
@@ -681,7 +898,7 @@ export function viewRefunds() {
     <div><h1>환불자 명단</h1><p>취소일 순으로 정렬됩니다. 총 ${rows.length}건${
       rows.filter((r) => !r.e.refund?.canceledAt).length
         ? ` · 취소일 미기재 ${rows.filter((r) => !r.e.refund?.canceledAt).length}건은 아래쪽에 표시` : ""}.</p></div>
-    ${termChips(termFilter)}
+    ${filterBar(termFilter)}
   </div>
   <dl class="kpis">
     <div class="kpi alert"><dt>환불 건수</dt><dd>${rows.length}<small>건</small></dd></div>
@@ -748,7 +965,11 @@ function findCourseByTitle(title) {
 
 export function viewWaitlist() {
   const rows = S.state.waitlist
-    .filter((w) => !termFilter || S.state.courses.find((c) => c.id === w.courseId)?.term === termFilter)
+    .filter((w) => {
+      const c = S.state.courses.find((x) => x.id === w.courseId);
+      return (!yearFilter || !c || courseYear(c) === yearFilter)
+        && (!termFilter || c?.term === termFilter);
+    })
     .sort((a, b) => String(a.registeredAt ?? "").localeCompare(String(b.registeredAt ?? "")));
   // 현황표의 대기 KPI(calc.countsFor)와 동일 기준
   const active = rows.filter((w) => ["유지", "무응답", "안읽음"].includes(w.state));
@@ -762,7 +983,7 @@ export function viewWaitlist() {
       <button class="btn" id="w-upload"><i data-lucide="upload"></i>명단 불러오기</button>
     </div>
   </div>
-  <div class="toolbar" style="margin-bottom:14px">${termChips(termFilter)}</div>
+  <div class="toolbar" style="margin-bottom:14px">${filterBar(termFilter)}</div>
   <dl class="kpis">
     <div class="kpi accent"><dt>대기 중</dt><dd>${active.length}<small>명</small></dd></div>
     <div class="kpi"><dt>대상 강좌</dt><dd>${courses.size}<small>개</small></dd></div>
@@ -881,7 +1102,8 @@ function assignDrawer(waitId) {
 
 /** 대기자 직접 추가 */
 function waitAddDrawer() {
-  const courses = S.state.courses.slice()
+  const courses = S.state.courses
+    .filter((c) => !yearFilter || courseYear(c) === yearFilter)
     .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term));
   const now = new Date();
   const localNow = `${C.iso(now)}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
@@ -1390,10 +1612,6 @@ export function viewCalc() {
     <div><h1>수업일 계산</h1>
       <p>주차별 수업 가능일과 모의고사·휴가·휴강을 한눈에 봅니다. 색칠 도구를 고르면 날짜를 직접 지정할 수 있습니다.</p></div>
     <div class="toolbar">
-      <select class="inp" id="cal-year" style="padding:6px 10px">
-        ${[...new Set([...years, String(y), String(y + 1)])].sort().map((v) =>
-          `<option ${String(y) === v ? "selected" : ""}>${v}</option>`).join("")}
-      </select>
       <button class="btn" id="cal-fee"><i data-lucide="calculator"></i>교습비 계산</button>
       <button class="btn" id="cal-pdf"><i data-lucide="printer"></i>PDF 저장</button>
     </div>
@@ -1427,12 +1645,6 @@ export function viewCalc() {
   </section>`;
 
   // ── 이벤트 ──
-  $("#cal-year").onchange = (ev) => {
-    if (Object.keys(calEdits).length && !confirm("저장하지 않은 색칠이 있습니다. 버리고 이동할까요?")) {
-      ev.target.value = String(y); return;
-    }
-    calEdits = {}; calYearSel = Number(ev.target.value); render("calc");
-  };
   $("#cal-fee").onclick = feeDrawer;
   $("#cal-pdf").onclick = () => window.print();
 
@@ -1545,11 +1757,13 @@ export function render(name = current) {
     return;
   }
   ensureTermFilter();
+  paintYearPicker();
   VIEWS[name]?.();
   document.querySelectorAll(".nav-btn").forEach((b) => b.classList.toggle("on", b.dataset.view === name));
   host().querySelectorAll("[data-term]").forEach((b) => b.addEventListener("click", () => {
     termFilter = b.dataset.term || null; render();
   }));
+
   window.lucide?.createIcons();
 }
 export const currentView = () => current;
