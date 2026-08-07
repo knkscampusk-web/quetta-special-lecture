@@ -185,10 +185,10 @@ export function viewDashboard() {
     <div class="card-head"><h2>강좌 목록</h2><span class="sub">행을 누르면 상세가 열립니다</span></div>
     <div class="tbl-wrap">${list.length ? `<table class="tbl">
       <thead><tr>
-        <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th>강의실</th>
-        <th class="num">인원</th><th class="num">수강</th><th class="num">신청</th>
-        <th class="num">취소</th><th class="num">환불</th><th class="num">대기</th>
-        <th>정원</th><th>개강</th><th>회차</th><th>수업일</th>
+        <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th class="ctr">강의실</th>
+        <th class="ctr">인원</th><th class="ctr">수강</th><th class="ctr">신청</th>
+        <th class="ctr">취소</th><th class="ctr">환불</th><th class="ctr">대기</th>
+        <th class="ctr">정원</th><th class="ctr">개강</th><th class="ctr">회차</th><th>수업일</th>
       </tr></thead><tbody>
       ${list.map((c) => {
         const n = C.countsFor(c.id, enrollments, waitlist);
@@ -202,16 +202,16 @@ export function viewDashboard() {
           <td class="strong">${esc(c.title)}</td>
           <td>${esc((c.teachers || []).join(", "))}</td>
           <td>${esc([c.day1, c.time1].filter(Boolean).join(" "))}</td>
-          <td>${esc(c.room) || '<span class="dim">-</span>'}</td>
-          <td class="num strong">${n.active}</td>
-          <td class="num">${n.attending}</td>
-          <td class="num">${n.applied ? `<span class="tag tag-warn">${n.applied}</span>` : '<span class="dim">0</span>'}</td>
-          <td class="num">${n.canceled || '<span class="dim">0</span>'}</td>
-          <td class="num">${n.refunded || '<span class="dim">0</span>'}</td>
-          <td class="num">${n.waiting || '<span class="dim">0</span>'}</td>
-          <td>${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
-          <td>${open ? C.fmt(open) : '<span class="dim">-</span>'}</td>
-          <td class="num">${(c.sessions || []).length}</td>
+          <td class="ctr">${esc(c.room) || '<span class="dim">-</span>'}</td>
+          <td class="ctr strong">${n.active}</td>
+          <td class="ctr">${n.attending}</td>
+          <td class="ctr">${n.applied ? `<span class="tag tag-warn">${n.applied}</span>` : '<span class="dim">0</span>'}</td>
+          <td class="ctr">${n.canceled || '<span class="dim">0</span>'}</td>
+          <td class="ctr">${n.refunded || '<span class="dim">0</span>'}</td>
+          <td class="ctr">${n.waiting || '<span class="dim">0</span>'}</td>
+          <td class="ctr">${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
+          <td class="ctr">${open ? C.fmt(open) : '<span class="dim">-</span>'}</td>
+          <td class="ctr">${(c.sessions || []).length}</td>
           <td class="days">${sessionChips(c.sessions, today)}</td>
         </tr>`;
       }).join("")}
