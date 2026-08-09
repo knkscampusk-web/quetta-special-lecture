@@ -1759,6 +1759,160 @@ function feeDrawer() {
   autoCount();
 }
 
+// ════════════════════════════════════════════════════════════════
+// 데이터 관리 — 전체 백업 · 삭제
+// ════════════════════════════════════════════════════════════════
+const DEL_TARGETS = [
+  { key: "enrollments", label: "수강·환불 내역", col: "enrollments" },
+  { key: "waitlist", label: "대기자", col: "waitlist" },
+  { key: "students", label: "학생 정보", col: "students" },
+  { key: "courses", label: "강좌", col: "courses" },
+];
+
+export function dataDrawer() {
+  const cnt = (k) => S.state[k]?.length || 0;
+
+  const d = drawer("데이터 관리", "백업을 먼저 받은 뒤 삭제하세요", `
+    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">1. 전체 백업</h4>
+    <label class="field"><span>범위</span>
+      <select class="inp" id="bk-scope" style="width:100%">
+        <option value="year">${yearFilter}년만</option>
+        <option value="all">전체 연도</option>
+      </select></label>
+    <button class="btn btn-pri" id="bk-go" style="width:100%;justify-content:center">
+      <i data-lucide="download"></i>엑셀로 백업 받기</button>
+    <p style="font-size:12px;color:var(--muted);margin:8px 0 22px">
+      강좌·수강내역·학생·대기자·수업일·일정을 시트별로 담은 파일 하나가 받아집니다.</p>
+
+    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-top:16px;border-top:1px solid var(--line-s)">2. 데이터 삭제</h4>
+    <div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
+      <div><b>되돌릴 수 없습니다.</b> 백업 파일을 먼저 열어 내용이 제대로 담겼는지 확인한 뒤 진행하세요.</div></div>
+    <div style="margin-bottom:14px">
+      ${DEL_TARGETS.map((t) => `<label style="display:flex;align-items:center;gap:9px;padding:7px 0;font-size:13px;cursor:pointer">
+        <input type="checkbox" data-del="${t.key}" style="width:16px;height:16px;accent-color:var(--danger)">
+        <span style="flex:1;font-weight:600">${t.label}</span>
+        <span class="dim">${cnt(t.key)}건</span></label>`).join("")}
+    </div>
+    <label class="field"><span>확인 문구 — <b>삭제합니다</b> 를 그대로 입력</span>
+      <input class="inp" id="del-confirm" style="width:100%" autocomplete="off" placeholder="삭제합니다"></label>
+    <div class="bar" style="height:8px;background:var(--line-s);border-radius:99px;overflow:hidden;margin:6px 0 6px">
+      <i id="del-bar" style="display:block;height:100%;background:var(--danger);width:0;transition:width .25s"></i></div>
+    <p id="del-stat" style="font-size:12px;color:var(--muted);margin:0 0 12px">대상을 고르고 확인 문구를 입력하세요.</p>
+    <button class="btn btn-danger" id="del-go" style="width:100%;justify-content:center" disabled>선택한 데이터 삭제</button>
+    <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
+      일정·수업일 설정은 지워지지 않습니다. 필요하면 Firebase 콘솔에서 <code>config</code> 문서를 지우세요.</p>`);
+
+  const el = (x) => $(x, d);
+  const picked = () => [...d.querySelectorAll("[data-del]:checked")].map((c) => c.dataset.del);
+  const refresh = () => {
+    const ok = picked().length > 0 && el("#del-confirm").value.trim() === "삭제합니다";
+    el("#del-go").disabled = !ok;
+    el("#del-stat").textContent = picked().length
+      ? `${picked().length}개 항목 · 총 ${picked().reduce((a, k) => a + cnt(k), 0)}건 삭제 예정`
+      : "대상을 고르고 확인 문구를 입력하세요.";
+  };
+  d.querySelectorAll("[data-del]").forEach((c) => c.addEventListener("change", refresh));
+  el("#del-confirm").addEventListener("input", refresh);
+
+  el("#bk-go").onclick = (ev) => backupExcel(el("#bk-scope").value, ev.currentTarget);
+
+  el("#del-go").onclick = async (ev) => {
+    const keys = picked();
+    const total = keys.reduce((a, k) => a + cnt(k), 0);
+    if (!confirm(`${keys.map((k) => DEL_TARGETS.find((t) => t.key === k).label).join(", ")}\n총 ${total}건을 영구 삭제합니다.\n\n정말 진행할까요?`)) return;
+    ev.target.disabled = true;
+    let done = 0;
+    try {
+      for (const k of keys) {
+        const t = DEL_TARGETS.find((x) => x.key === k);
+        const ids = S.state[k].map((x) => x.id);
+        await S.deleteDocs(t.col, ids, (n) => {
+          el("#del-stat").textContent = `${t.label} ${n}/${ids.length} 삭제 중…`;
+          el("#del-bar").style.width = `${Math.round(((done + n) / total) * 100)}%`;
+        });
+        done += ids.length;
+      }
+      el("#del-bar").style.width = "100%";
+      el("#del-stat").textContent = `완료 · ${done}건 삭제`;
+      toast(`${done}건을 삭제했습니다.`);
+      el("#del-confirm").value = "";
+      d.querySelectorAll("[data-del]").forEach((c) => { c.checked = false; });
+      refresh();
+    } catch (err) {
+      el("#del-stat").textContent = `실패: ${err.code || err.message}`;
+      ev.target.disabled = false;
+    }
+  };
+}
+
+/** 전체 백업 — 시트 여러 장을 담은 엑셀 하나 */
+async function backupExcel(scope, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "만드는 중…";
+  try {
+    const XLSX = await loadSheetJs();
+    const inYear = (y) => scope === "all" || y === yearFilter;
+    const { courses, students, enrollments, waitlist } = S.state;
+    const wb = XLSX.utils.book_new();
+    const add = (name, rows, widths) => {
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      if (widths) ws["!cols"] = widths.map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    };
+
+    const cs = courses.filter((c) => inYear(courseYear(c)));
+    add("강좌", [["연도", "기수", "과목", "강의명", "담당", "요일", "시간", "강의실", "정원",
+      "회차", "개강", "종강", "교습비", "교재비", "총액", "교재명", "출석부"],
+      ...cs.map((c) => [courseYear(c), c.term, c.subject, c.title, (c.teachers || []).join(","),
+        c.day1, c.time1, c.room, c.cap1, (c.sessions || []).length,
+        c.sessions?.[0]?.date || "", c.sessions?.[c.sessions.length - 1]?.date || "",
+        c.fee?.tuition, c.fee?.book, c.fee?.total, c.textbook?.title, c.attendanceUrl])],
+      [6, 6, 6, 26, 14, 7, 14, 8, 6, 6, 12, 12, 10, 9, 10, 20, 30]);
+
+    const es = enrollments.filter((e) => inYear(enrollYear(e)));
+    add("수강내역", [["연도", "기수", "학번", "성명", "반", "강좌", "시작회차", "결제주체", "결제일",
+      "상태", "취소일", "환불유형", "교재", "환불예상액", "최종환불일"],
+      ...es.map((e) => {
+        const c = courses.find((x) => x.id === e.courseId);
+        const s = students.find((x) => x.id === e.studentId);
+        return [enrollYear(e), e.term, e.studentId, s?.name, s?.classGroup, c?.title,
+          e.startSession || 1, e.payer, e.paidAt, C.normStatus(e.status),
+          e.refund?.canceledAt, e.refund?.type, e.refund?.bookRefund,
+          C.refundAmount(c, e.refund), e.refund?.settledAt];
+      })], [6, 6, 8, 10, 5, 26, 8, 11, 12, 8, 12, 10, 8, 12, 12]);
+
+    add("학생", [["학번", "성명", "반", "그룹", "기숙사", "수험번호", "전형", "상태"],
+      ...students.map((s) => [s.id, s.name, s.classGroup, s.group, s.dorm, s.examNo, s.admissionType, s.status])],
+      [8, 10, 5, 5, 9, 10, 12, 8]);
+
+    add("대기자", [["등록시각", "학번", "이름", "반", "대기강좌", "안내발송", "처리", "비고"],
+      ...waitlist.map((w) => [w.registeredAt, w.studentId, w.name, w.classGroup,
+        w.courseTitle, w.notifiedAt, w.state, w.memo])], [18, 8, 10, 5, 26, 12, 8, 20]);
+
+    const cal = S.state.calendars || {};
+    const calRows = [["연도", "날짜", "요일", "구분"]];
+    Object.entries(cal).filter(([k]) => /^\d{4}$/.test(k) && (scope === "all" || Number(k) === yearFilter))
+      .forEach(([yy, v]) => Object.entries(v.cells || {}).sort()
+        .forEach(([dt, val]) => calRows.push([yy, dt, C.dayName(dt), val])));
+    add("수업일", calRows, [6, 12, 6, 10]);
+
+    const sc = S.state.schedule || {};
+    const scRows = [["연도", "시작일", "종료일", "내용", "분류"]];
+    Object.entries(sc).filter(([k]) => scope === "all" || Number(k) === yearFilter)
+      .forEach(([yy, list]) => (list || []).forEach((e) =>
+        scRows.push([yy, e.date, e.end || "", e.label, e.cat || ""])));
+    add("일정", scRows, [6, 12, 12, 30, 8]);
+
+    const tag = scope === "all" ? "전체" : `${yearFilter}년`;
+    XLSX.writeFile(wb, `QUETTA특강_백업_${tag}_${C.iso(new Date())}.xlsx`);
+    toast("백업 파일을 내려받았습니다.");
+  } catch (err) {
+    toast("백업하지 못했습니다: " + err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
+}
+
 // ── 라우팅 ──────────────────────────────────────────────────────
 const VIEWS = {
   dashboard: viewDashboard, students: viewStudents, refunds: viewRefunds,

@@ -26,6 +26,15 @@ export const recaptchaSiteKey = "";
 // '@'가 포함된 값을 입력하면 그대로 이메일로 처리하므로 기존 이메일 계정도 함께 쓸 수 있습니다.
 export const loginDomain = "quetta.local";
 
+// 고정 로그인 아이디. 값이 있으면 로그인 화면에서 아이디 칸을 숨기고 이 값을 씁니다.
+// 빈 문자열("")로 두면 아이디 칸이 표시됩니다.
+// 주의: 저장소가 공개돼 있으면 이 값도 공개됩니다. 아이디는 비밀이 아니므로 무방하지만,
+//       그만큼 PIN 하나로 접근이 결정되니 App Check를 반드시 켜세요.
+export const fixedLoginId = "quetta";
+
+// PIN 자릿수. Firebase는 비밀번호 최소 6자를 요구하므로 6 미만으로 낮출 수 없습니다.
+export const pinLength = 6;
+
 export const APP = {
   title: "특강 MASTER",
   academy: "강남대성기숙 QUETTA",

@@ -102,6 +102,20 @@ export async function bulkSet(colName, rows) {
   return rows.length;
 }
 
+/** 문서 일괄 삭제 (400건씩 나눠서) */
+export async function deleteDocs(colName, ids, onProgress) {
+  let done = 0;
+  for (let i = 0; i < ids.length; i += 400) {
+    const chunk = ids.slice(i, i + 400);
+    const b = writeBatch(db);
+    chunk.forEach((id) => b.delete(doc(db, colName, id)));
+    await b.commit();
+    done += chunk.length;
+    onProgress?.(done, ids.length);
+  }
+  return ids.length;
+}
+
 /** 대기자 → 특강학생명단 배정 */
 export async function assignWait(wait, { courseId, startSession = 1, status = "신청", payer = null }) {
   if (!courseId) throw new Error("연결된 강좌가 없습니다. 강좌를 먼저 지정하세요.");
