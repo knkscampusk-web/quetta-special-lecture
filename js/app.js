@@ -1,6 +1,6 @@
-import * as S from "./store.js?v=3";
-import { render, toast, dataDrawer } from "./views.js?v=3";
-import { fixedLoginId, pinLength } from "./config.js?v=3";
+import * as S from "./store.js?v=4";
+import { render, toast, dataDrawer } from "./views.js?v=4";
+import { fixedLoginId, pinLength } from "./config.js?v=4";
 
 const $ = (s) => document.querySelector(s);
 let subscribed = false;

@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaV3Provider }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app-check.js";
-import { firebaseConfig, recaptchaSiteKey, loginDomain } from "./config.js?v=3";
+import { firebaseConfig, recaptchaSiteKey, loginDomain } from "./config.js?v=4";
 
 const app = initializeApp(firebaseConfig);
 if (recaptchaSiteKey) {
