@@ -30,7 +30,7 @@ export const loginDomain = "quetta.local";
 // 빈 문자열("")로 두면 아이디 칸이 표시됩니다.
 // 주의: 저장소가 공개돼 있으면 이 값도 공개됩니다. 아이디는 비밀이 아니므로 무방하지만,
 //       그만큼 PIN 하나로 접근이 결정되니 App Check를 반드시 켜세요.
-export const fixedLoginId = "quetta";
+export const fixedLoginId = "";
 
 // PIN 자릿수. Firebase는 비밀번호 최소 6자를 요구하므로 6 미만으로 낮출 수 없습니다.
 export const pinLength = 6;
