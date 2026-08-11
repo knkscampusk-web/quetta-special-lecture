@@ -1,6 +1,7 @@
 // 화면 렌더링
-import * as S from "./store.js?v=4";
-import * as C from "./calc.js?v=4";
+import * as S from "./store.js?v=6";
+import * as C from "./calc.js?v=6";
+import { pinLength, fixedLoginId } from "./config.js?v=6";
 
 const $ = (s, r = document) => r.querySelector(s);
 export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
@@ -1911,6 +1912,66 @@ async function backupExcel(scope, btn) {
   } finally {
     btn.disabled = false; btn.textContent = label;
   }
+}
+
+/** 로그인 PIN 변경 */
+export function pinDrawer() {
+  const pinMode = !!fixedLoginId;                 // PIN 방식일 때만 숫자 전용
+  const NAME = pinMode ? `PIN ${pinLength}자리` : "비밀번호";
+  const d = drawer(`${pinMode ? "PIN" : "비밀번호"} 변경`,
+    pinMode ? `현재 비밀번호로 확인한 뒤 ${pinLength}자리 숫자로 바꿉니다`
+            : "현재 비밀번호로 확인한 뒤 새 비밀번호로 바꿉니다", `
+    <label class="field"><span>현재 비밀번호</span>
+      <input class="inp" type="password" id="p-cur" style="width:100%" autocomplete="current-password"></label>
+    <label class="field"><span>새 ${NAME}</span>
+      <input class="inp" type="password" id="p-new" autocomplete="new-password"
+             ${pinMode ? `inputmode="numeric" maxlength="${pinLength}"` : ""}
+             style="width:100%${pinMode ? ";letter-spacing:6px;text-align:center" : ""}"></label>
+    <label class="field"><span>새 ${NAME} 확인</span>
+      <input class="inp" type="password" id="p-new2" autocomplete="new-password"
+             ${pinMode ? `inputmode="numeric" maxlength="${pinLength}"` : ""}
+             style="width:100%${pinMode ? ";letter-spacing:6px;text-align:center" : ""}"></label>
+    <p id="p-msg" style="font-size:12px;color:var(--muted);margin:0 0 14px">
+      ${pinMode ? "숫자만 입력됩니다. " : "Firebase 규칙상 최소 6자 이상이어야 합니다. "}
+      바꾼 뒤에는 브라우저에 저장된 비밀번호도 새 값으로 갱신하세요.</p>
+    <button class="btn btn-pri" id="p-go" style="width:100%;justify-content:center">변경하기</button>`);
+
+  const el = (x) => $(x, d);
+  if (pinMode) {
+    ["#p-new", "#p-new2"].forEach((sel) => el(sel).addEventListener("input", () => {
+      el(sel).value = el(sel).value.replace(/\D/g, "").slice(0, pinLength);
+    }));
+  }
+
+  el("#p-go").onclick = async (ev) => {
+    const cur = el("#p-cur").value;
+    const a = el("#p-new").value, b = el("#p-new2").value;
+    const msg = el("#p-msg");
+    if (!cur) return toast("현재 비밀번호를 입력하세요.");
+    if (pinMode && a.length !== pinLength) return toast(`새 PIN을 ${pinLength}자리로 입력하세요.`);
+    if (!pinMode && a.length < 6) return toast("새 비밀번호는 6자 이상이어야 합니다.");
+    if (a !== b) return toast("새로 입력한 두 칸이 서로 다릅니다.");
+
+    ev.target.disabled = true; ev.target.textContent = "변경 중…";
+    try {
+      await S.changePin(cur, a);
+      msg.innerHTML = '<b style="color:var(--ok)">변경했습니다. 브라우저에 저장된 비밀번호도 새 값으로 갱신하세요.</b>';
+      el("#p-cur").value = ""; el("#p-new").value = ""; el("#p-new2").value = "";
+      toast("PIN을 변경했습니다.");
+    } catch (err) {
+      const map = {
+        "auth/invalid-credential": "현재 비밀번호가 맞지 않습니다.",
+        "auth/wrong-password": "현재 비밀번호가 맞지 않습니다.",
+        "auth/weak-password": "너무 짧습니다. 최소 6자 이상이어야 합니다.",
+        "auth/requires-recent-login": "보안을 위해 다시 로그인한 뒤 시도하세요.",
+        "auth/too-many-requests": "시도가 많아 잠시 막혔습니다. 잠시 후 다시 시도하세요.",
+      };
+      msg.innerHTML = `<b style="color:var(--danger)">${esc(map[err.code] || err.message)}</b>`;
+    } finally {
+      ev.target.disabled = false; ev.target.textContent = "변경하기";
+    }
+  };
+  el("#p-cur").focus();
 }
 
 // ── 라우팅 ──────────────────────────────────────────────────────

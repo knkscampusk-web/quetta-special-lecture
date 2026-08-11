@@ -6,7 +6,7 @@
 <title>특강 MASTER · 강남대성기숙 QUETTA</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-<link rel="stylesheet" href="./assets/style.css?v=4">
+<link rel="stylesheet" href="./assets/style.css?v=6">
 </head>
 <body>
 
@@ -22,6 +22,7 @@
       <input type="password" id="pw" required autocomplete="current-password"></label>
     <p id="gateMsg" class="tag tag-danger" hidden style="display:block;padding:8px 10px;margin:0 0 12px"></p>
     <button class="btn btn-pri" style="width:100%;justify-content:center" type="submit">로그인</button>
+    <button type="button" class="link-btn" id="altLogin" hidden>이메일·비밀번호로 로그인</button>
   </form>
 </div>
 
@@ -41,6 +42,7 @@
     <button class="nav-btn" data-view="calc"><i data-lucide="calculator"></i>수업일 계산</button>
     <div class="side-foot">
       <p id="whoami"></p>
+      <button class="btn btn-sm" id="pinChange" style="width:100%;justify-content:center;margin-bottom:6px">비밀번호 변경</button>
       <button class="btn btn-sm" id="dataMgr" style="width:100%;justify-content:center;margin-bottom:6px">데이터 관리</button>
       <button class="btn btn-sm" id="logout" style="width:100%;justify-content:center">로그아웃</button>
     </div>
@@ -49,6 +51,6 @@
 </div>
 
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
-<script type="module" src="./js/app.js?v=4"></script>
+<script type="module" src="./js/app.js?v=6"></script>
 </body>
 </html>

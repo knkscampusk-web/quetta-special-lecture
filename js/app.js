@@ -1,28 +1,79 @@
-import * as S from "./store.js?v=4";
-import { render, toast, dataDrawer } from "./views.js?v=4";
-import { fixedLoginId, pinLength } from "./config.js?v=4";
+import * as S from "./store.js?v=6";
+import { render, toast, dataDrawer, pinDrawer } from "./views.js?v=6";
+import { fixedLoginId, pinLength, autoLogin } from "./config.js?v=6";
 
 const $ = (s) => document.querySelector(s);
 let subscribed = false;
 
 // ── 로그인 화면 구성 ────────────────────────────────────────────
 const usePin = !!fixedLoginId;
+let pinMode = usePin;                 // 비상 통로로 끄면 일반 로그인
+const pwEl = $("#pw");
+
+function applyPinMode(on) {
+  pinMode = on;
+  $("#idField").hidden = on;
+  $("#altLogin").hidden = !on;
+  $("#email").value = on ? fixedLoginId : "";
+  $("#gateSub").textContent = on
+    ? `행정실 PIN ${pinLength}자리를 입력하세요.`
+    : "이메일과 비밀번호로 로그인하세요.";
+  $("#pwLabel").textContent = on ? `PIN ${pinLength}자리` : "비밀번호";
+  if (on) {
+    pwEl.setAttribute("inputmode", "numeric");
+    pwEl.setAttribute("maxlength", String(pinLength));
+    pwEl.setAttribute("placeholder", "•".repeat(pinLength));
+    Object.assign(pwEl.style, { letterSpacing: "6px", textAlign: "center", fontSize: "18px" });
+  } else {
+    pwEl.removeAttribute("inputmode");
+    pwEl.removeAttribute("maxlength");
+    pwEl.setAttribute("placeholder", "");
+    Object.assign(pwEl.style, { letterSpacing: "", textAlign: "", fontSize: "" });
+    $("#email").focus();
+  }
+  pwEl.value = "";
+}
+
 if (usePin) {
-  $("#idField").hidden = true;
-  $("#email").value = fixedLoginId;
-  $("#gateSub").textContent = `행정실 PIN ${pinLength}자리를 입력하세요.`;
-  $("#pwLabel").textContent = `PIN ${pinLength}자리`;
-  const pw = $("#pw");
-  pw.setAttribute("inputmode", "numeric");
-  pw.setAttribute("maxlength", String(pinLength));
-  pw.setAttribute("placeholder", "•".repeat(pinLength));
-  pw.style.letterSpacing = "6px";
-  pw.style.textAlign = "center";
-  pw.style.fontSize = "18px";
-  pw.addEventListener("input", () => {
-    pw.value = pw.value.replace(/\D/g, "").slice(0, pinLength);
+  applyPinMode(true);
+  pwEl.addEventListener("input", () => {
+    if (!pinMode) return;
+    pwEl.value = pwEl.value.replace(/\D/g, "").slice(0, pinLength);
+    if (pwEl.value.length === pinLength) submitIfReady();
+  });
+  $("#altLogin").addEventListener("click", () => {
+    autoTried = true;                 // 자동 로그인 중단
+    applyPinMode(false);
   });
 }
+
+// ── 저장된 PIN 자동 로그인 ──────────────────────────────────────
+const NOAUTO_KEY = "quetta.noauto";
+let autoTried = false;
+
+function submitIfReady() {
+  const btn = $("#gateForm button[type=submit]");
+  if (!pinMode || btn.disabled) return;           // 일반 로그인·잠금 중이면 대기
+  if ($("#pw").value.length !== pinLength) return;
+  $("#gateForm").requestSubmit
+    ? $("#gateForm").requestSubmit()
+    : $("#gateForm").dispatchEvent(new Event("submit", { cancelable: true }));
+}
+
+function tryAutoLogin() {
+  if (!usePin || !pinMode || !autoLogin || autoTried) return;
+  autoTried = true;
+  // 방금 로그아웃했다면 자동 로그인하지 않습니다.
+  try {
+    if (sessionStorage.getItem(NOAUTO_KEY)) { sessionStorage.removeItem(NOAUTO_KEY); return; }
+  } catch { /* 무시 */ }
+  submitIfReady();
+}
+// 브라우저 자동 입력은 조금 늦게 채워지므로 두 번 확인합니다.
+window.addEventListener("load", () => {
+  setTimeout(tryAutoLogin, 300);
+  setTimeout(() => { autoTried = false; tryAutoLogin(); }, 900);
+});
 
 // ── 연속 실패 잠금 (자동 대입 공격 지연) ────────────────────────
 const LOCK_KEY = "quetta.pin.lock";
@@ -39,7 +90,7 @@ let tick = null;
 function paintLock() {
   const { until } = readLock();
   const left = Math.ceil((until - Date.now()) / 1000);
-  const btn = $("#gateForm button");
+  const btn = $("#gateForm button[type=submit]");
   if (left > 0) {
     btn.disabled = true;
     btn.textContent = `${left}초 후 다시 시도`;
@@ -65,11 +116,14 @@ $("#gateForm").addEventListener("submit", async (e) => {
   if (paintLock()) return;
 
   const pwv = $("#pw").value;
-  if (usePin && pwv.length !== pinLength) {
+  if (pinMode && pwv.length !== pinLength) {
     return showGate(`PIN ${pinLength}자리를 모두 입력하세요.`);
   }
+  if (!pinMode && !$("#email").value.trim()) {
+    return showGate("이메일을 입력하세요.");
+  }
 
-  const btn = e.target.querySelector("button");
+  const btn = e.target.querySelector("button[type=submit]");
   btn.disabled = true; btn.textContent = "확인 중…";
   try {
     await S.login($("#email").value.trim(), pwv);
@@ -82,9 +136,9 @@ $("#gateForm").addEventListener("submit", async (e) => {
     writeLock(st);
 
     const map = {
-      "auth/invalid-credential": usePin ? "PIN이 맞지 않습니다." : "아이디 또는 비밀번호가 맞지 않습니다.",
-      "auth/wrong-password": usePin ? "PIN이 맞지 않습니다." : "아이디 또는 비밀번호가 맞지 않습니다.",
-      "auth/user-not-found": usePin ? "PIN이 맞지 않습니다." : "아이디 또는 비밀번호가 맞지 않습니다.",
+      "auth/invalid-credential": pinMode ? "PIN이 맞지 않습니다." : "이메일 또는 비밀번호가 맞지 않습니다.",
+      "auth/wrong-password": pinMode ? "PIN이 맞지 않습니다." : "이메일 또는 비밀번호가 맞지 않습니다.",
+      "auth/user-not-found": pinMode ? "PIN이 맞지 않습니다." : "이메일 또는 비밀번호가 맞지 않습니다.",
       "auth/invalid-email": "로그인 설정이 잘못되었습니다. 관리자에게 문의하세요.",
       "auth/too-many-requests": "시도가 많아 잠시 막혔습니다. 잠시 후 다시 시도하세요.",
       "auth/network-request-failed": "네트워크에 연결할 수 없습니다.",
@@ -98,6 +152,7 @@ $("#gateForm").addEventListener("submit", async (e) => {
 });
 
 $("#logout").addEventListener("click", async () => {
+  try { sessionStorage.setItem(NOAUTO_KEY, "1"); } catch { /* 무시 */ }
   await S.logout();
   location.reload();
 });
@@ -105,6 +160,7 @@ $("#logout").addEventListener("click", async () => {
 document.querySelectorAll(".nav-btn").forEach((b) =>
   b.addEventListener("click", () => render(b.dataset.view)));
 $("#dataMgr").addEventListener("click", () => dataDrawer());
+$("#pinChange").addEventListener("click", () => pinDrawer());
 
 S.watchAuth(async (user) => {
   if (!user) { showGate(); return; }

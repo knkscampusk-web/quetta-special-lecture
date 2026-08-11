@@ -2,7 +2,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
 import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, setPersistence,
-  browserSessionPersistence,
+  browserSessionPersistence, EmailAuthProvider, reauthenticateWithCredential, updatePassword,
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
   getFirestore, collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc,
@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { initializeAppCheck, ReCaptchaV3Provider }
   from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app-check.js";
-import { firebaseConfig, recaptchaSiteKey, loginDomain } from "./config.js?v=4";
+import { firebaseConfig, recaptchaSiteKey, loginDomain } from "./config.js?v=6";
 
 const app = initializeApp(firebaseConfig);
 if (recaptchaSiteKey) {
@@ -36,6 +36,15 @@ export const displayId = (email) => String(email || "").replace(`@${loginDomain}
 export const login = (id, pw) => signInWithEmailAndPassword(auth, toLoginEmail(id), pw);
 export const logout = () => signOut(auth);
 export const watchAuth = (cb) => onAuthStateChanged(auth, cb);
+
+/** 로그인 비밀번호(PIN) 변경 — 현재 비밀번호로 본인 확인 후 교체 */
+export async function changePin(current, next) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("로그인 상태가 아닙니다.");
+  const cred = EmailAuthProvider.credential(user.email, current);
+  await reauthenticateWithCredential(user, cred);
+  await updatePassword(user, next);
+}
 
 /** admins/{uid} 문서가 있어야 행정실 사용자로 인정 (rules와 동일 조건) */
 export async function isAdmin(uid) {

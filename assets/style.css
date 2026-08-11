@@ -56,6 +56,11 @@ a:hover { text-decoration: underline; }
 }
 .gate-sub { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
 .field { display: block; margin-bottom: 14px; }
+.link-btn {
+  display: block; width: 100%; margin-top: 12px; padding: 4px; border: 0; background: none;
+  color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: underline;
+}
+.link-btn:hover { color: var(--teal-d); }
 .field span { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
 .field input {
   width: 100%; padding: 11px 13px; border: 1px solid var(--line);

@@ -33,7 +33,11 @@ export const loginDomain = "quetta.local";
 export const fixedLoginId = "";
 
 // PIN 자릿수. Firebase는 비밀번호 최소 6자를 요구하므로 6 미만으로 낮출 수 없습니다.
-export const pinLength = 6;
+export const pinLength = 7;
+
+// 저장된 PIN이 자동 입력되면 바로 로그인할지 여부.
+// 로그아웃 직후에는 동작하지 않습니다(다시 자동 로그인되는 것을 막기 위함).
+export const autoLogin = true;
 
 export const APP = {
   title: "특강 MASTER",
