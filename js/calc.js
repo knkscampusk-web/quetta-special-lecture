@@ -101,18 +101,49 @@ export function sessionsTaken(course, asOf = iso(new Date()), startNo = 1) {
 /** 진행 회차 → 환불유형 문자열 */
 export const refundTypeFor = (n) => (n <= 0 ? "전액" : `${n}회수강`);
 
-/** 환불 예상액. 전액 = 총액, N회수강 = 총액 − (교습비/총회차 × N) − (교재 수령 시 교재비) */
+// ── 교재 ────────────────────────────────────────────────────────
+export const BOOK_UNIT = 15000;                 // 교재 1권 기본 단가
+
+export const bookUnit = (course) => course?.textbook?.unitPrice || BOOK_UNIT;
+
+/** 교재비로부터 권수 산출 (30,000원 → 2권) */
+export function bookCount(course) {
+  const fee = course?.fee?.book || 0;
+  if (!fee) return 0;
+  return Math.max(1, Math.round(fee / bookUnit(course)));
+}
+
+/** 권별 배부 정보. 없으면 권수만큼 빈 항목을 만들어 줍니다. */
+export function bookList(course) {
+  const n = bookCount(course);
+  const saved = course?.textbook?.books || [];
+  const legacy = course?.textbook?.distributeDate || null;
+  return Array.from({ length: n }, (_, i) => ({
+    no: i + 1,
+    date: saved[i]?.date ?? (i === 0 ? legacy : null),
+  }));
+}
+
+/** 기준일까지 배부된(=학생이 수령한) 권수 */
+export const booksGiven = (course, asOf = iso(new Date())) =>
+  bookList(course).filter((b) => b.date && b.date <= asOf).length;
+
+/** 환불 예상액. 전액 = 총액, N회수강 = 총액 − (교습비/총회차 × N) − (수령한 교재비) */
 export function refundAmount(course, refund) {
   if (!course?.fee || !refund) return null;
   const total = course.fee.total ?? ((course.fee.tuition || 0) + (course.fee.book || 0));
   const type = String(refund.type || "");
-  if (type.includes("전액")) return total;          // '전액', '전액환불' 등 표기 흔들림 흡수
+  // 수령 권수가 기록돼 있으면 권 단위로, 없으면 옛 표기(수령/환불)로 계산합니다.
+  const kept = refund.bookKept != null
+    ? Number(refund.bookKept) * bookUnit(course)
+    : (refund.bookRefund === "수령" ? (course.fee.book || 0) : 0);
+  // '전액'이어도 이미 받아 간 교재는 차감합니다.
+  if (type.includes("전액")) return Math.max(total - kept, 0);
   const m = type.match(/(\d+)\s*회/);               // '3회수강', '3회 수강' 모두 인식
   const used = m ? Number(m[1]) : 1;
   const n = (course.sessions || []).length || 1;
   const perSession = Math.round((course.fee.tuition || 0) / n);
-  const bookKeep = refund.bookRefund === "수령" ? (course.fee.book || 0) : 0;
-  return Math.max(total - perSession * used - bookKeep, 0);
+  return Math.max(total - perSession * used - kept, 0);
 }
 
 // ── 집계 ────────────────────────────────────────────────────────

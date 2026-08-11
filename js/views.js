@@ -129,6 +129,18 @@ const statusTag = (raw) => {
   return `<span class="tag ${STATUS_TAG[st] || "tag-neutral"}">${esc(st)}</span>`;
 };
 
+/** 교재 배부 현황 칩 */
+function bookChips(course, today) {
+  const list = C.bookList(course);
+  if (!list.length) return '<span class="dim">-</span>';
+  return list.map((b) => {
+    const given = b.date && b.date <= today;
+    return `<span class="sd ${given ? "sd-past" : "sd-next"}"
+      title="${b.no}권 · ${b.date ? C.fmt(b.date) + " 배부" : "미배부"}">${b.no}권${
+      b.date ? ` ${+b.date.slice(5, 7)}/${+b.date.slice(8, 10)}` : ""}</span>`;
+  }).join("");
+}
+
 /** 강좌의 전체 수업일을 칩으로. 지난 날은 어둡게, 오늘 수업은 강조 */
 function sessionChips(sessions, today) {
   const list = sessions || [];
@@ -189,7 +201,7 @@ export function viewDashboard() {
         <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th class="ctr">강의실</th>
         <th class="ctr">인원</th><th class="ctr">수강</th><th class="ctr">신청</th>
         <th class="ctr">취소</th><th class="ctr">환불</th><th class="ctr">대기</th>
-        <th class="ctr">정원</th><th class="ctr">개강</th><th class="ctr">회차</th><th>수업일</th>
+        <th class="ctr">정원</th><th class="ctr">개강</th><th class="ctr">회차</th><th class="ctr">교재</th><th>수업일</th>
       </tr></thead><tbody>
       ${list.map((c) => {
         const n = C.countsFor(c.id, enrollments, waitlist, c);
@@ -214,6 +226,7 @@ export function viewDashboard() {
           <td class="ctr">${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
           <td class="ctr">${open ? C.fmt(open) : '<span class="dim">-</span>'}</td>
           <td class="ctr">${(c.sessions || []).length}</td>
+          <td class="ctr">${bookChips(c, today)}</td>
           <td class="days">${sessionChips(c.sessions, today)}</td>
         </tr>`;
       }).join("")}
@@ -241,12 +254,23 @@ function courseDrawer(id) {
       <dt>요일·시간</dt><dd>${esc([c.day1, c.time1].filter(Boolean).join(" "))}${mins ? ` <span class="dim">(${mins}분)</span>` : ""}</dd>
       <dt>강의실</dt><dd>${esc(c.room) || "-"}</dd>
       <dt>교습비</dt><dd>${C.won(c.fee?.tuition)}${mins && c.sessions?.length ? ` <span class="dim">· 계산값 ${C.won(C.tuitionOf(mins, c.sessions.length))}</span>` : ""}</dd>
-      <dt>교재</dt><dd>${esc(c.textbook?.title) || "없음"}${c.fee?.book ? ` · ${C.won(c.fee.book)}` : ""}</dd>
+      <dt>교재</dt><dd>${esc(c.textbook?.title) || "없음"}${
+        c.fee?.book ? ` · ${C.won(c.fee.book)} (${C.bookCount(c)}권 × ${C.won(C.bookUnit(c))})` : ""}</dd>
       <dt>총액</dt><dd class="strong">${C.won(c.fee?.total)}</dd>
       ${c.attendanceUrl ? `<dt>출석부</dt><dd><a href="${esc(c.attendanceUrl)}" target="_blank" rel="noopener">열기</a></dd>` : ""}
       <dt>현황</dt><dd>인원 ${n.active} (수강 ${n.attending} · 신청 ${n.applied}) · 취소 ${n.canceled} · 환불 ${n.refunded} · 대기 ${n.waiting}</dd>
       ${c.note ? `<dt>특이사항</dt><dd>${esc(c.note)}</dd>` : ""}
     </dl>
+    ${C.bookCount(c) ? `<h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">교재 배부</h4>
+      <div id="bk-rows" style="margin-bottom:20px">
+        ${C.bookList(c).map((b) => `<div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid var(--line-s)">
+          <input type="checkbox" data-bkchk="${b.no}" ${b.date ? "checked" : ""}
+            style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal)">
+          <span style="flex:none;font-weight:700;font-size:13px;min-width:32px">${b.no}권</span>
+          <input type="date" class="inp" data-bkdate="${b.no}" value="${esc(b.date || "")}"
+            style="flex:1;padding:5px 9px" ${b.date ? "" : "disabled"}>
+        </div>`).join("")}
+      </div>` : ""}
     <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">수업 일정 (${(c.sessions || []).length}회)</h4>
     <div class="daylist">${(c.sessions || []).map((s) =>
       `<span class="day ${s.canceled ? "skip" : ""}">${s.no}회 ${C.fmt(s.date)}</span>`).join("") || '<span class="dim">등록된 회차 없음</span>'}</div>
@@ -260,6 +284,26 @@ function courseDrawer(id) {
       </tr>`).join("") || '<tr><td class="dim">등록된 학생이 없습니다.</td></tr>'}
     </tbody></table></div>`);
   $("#course-edit", d).onclick = () => courseFormDrawer(c.id);
+
+  // 교재 배부 체크 · 날짜 즉시 저장
+  const saveBooks = async () => {
+    const books = [...d.querySelectorAll("[data-bkdate]")].map((inp) => ({
+      no: Number(inp.dataset.bkdate),
+      date: inp.disabled ? null : (inp.value || null),
+    }));
+    try {
+      await S.saveCourse(c.id, { textbook: { ...(c.textbook || {}), books } });
+      toast("교재 배부 정보를 저장했습니다.");
+    } catch (err) { toast("저장하지 못했습니다: " + err.message); }
+  };
+  d.querySelectorAll("[data-bkchk]").forEach((cb) => cb.addEventListener("change", () => {
+    const inp = d.querySelector(`[data-bkdate="${cb.dataset.bkchk}"]`);
+    inp.disabled = !cb.checked;
+    if (cb.checked && !inp.value) inp.value = C.iso(new Date());
+    if (!cb.checked) inp.value = "";
+    saveBooks();
+  }));
+  d.querySelectorAll("[data-bkdate]").forEach((inp) => inp.addEventListener("change", saveBooks));
 }
 
 /** 선택 연도의 제외일 (모의고사·정기휴가·휴강) — 수업일 자동 생성에 사용 */
@@ -324,8 +368,9 @@ function courseFormDrawer(courseId) {
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:8px">
       <label class="field" style="margin:0"><span>교재명</span>
         <input class="inp" id="c-book" value="${esc(editing?.textbook?.title || "")}" style="width:100%"></label>
-      <label class="field" style="margin:0"><span>교재비</span>
-        <input class="inp" type="number" id="c-bookfee" min="0" step="1000" value="${editing?.fee?.book ?? 0}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>교재비 (권당 ${C.BOOK_UNIT.toLocaleString()}원)</span>
+        <input class="inp" type="number" id="c-bookfee" min="0" step="${C.BOOK_UNIT}" value="${editing?.fee?.book ?? 0}" style="width:100%">
+        <span id="c-bookcnt" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
       <label class="field" style="margin:0"><span>교습비</span>
@@ -381,7 +426,15 @@ function courseFormDrawer(courseId) {
   };
 
   ["#c-start", "#c-count", "#c-day", "#c-year"].forEach((sel) => el(sel).addEventListener("change", rebuild));
-  ["#c-time", "#c-bookfee"].forEach((sel) => el(sel).addEventListener("input", feeHint));
+  const bookHint = () => {
+    const fee = Number(el("#c-bookfee").value) || 0;
+    const n = fee ? Math.max(1, Math.round(fee / C.BOOK_UNIT)) : 0;
+    el("#c-bookcnt").textContent = n
+      ? `${n}권 · 배부일은 강좌 상세에서 권별로 체크합니다.`
+      : "교재 없음";
+  };
+  ["#c-time", "#c-bookfee"].forEach((sel) => el(sel).addEventListener("input", () => { feeHint(); bookHint(); }));
+  bookHint();
   rebuild();
 
   el("#c-save").onclick = async (ev) => {
@@ -715,7 +768,9 @@ function refundDrawer(enrollmentId) {
   const s = S.state.students.find((x) => x.id === e.studentId);
   const today = C.iso(new Date());
   const totalSessions = (c?.sessions || []).length;
-  const hasBook = (c?.fee?.book || 0) > 0;
+  const bookTotal = C.bookCount(c);
+  const unit = C.bookUnit(c);
+  const hasBook = bookTotal > 0;
   const startNo = e.startSession || 1;
 
   const opts = ["전액", ...Array.from({ length: totalSessions }, (_, i) => `${i + 1}회수강`)];
@@ -731,35 +786,50 @@ function refundDrawer(enrollmentId) {
       <select class="inp" id="r-type" style="width:100%">
         ${opts.map((o) => `<option ${o === autoType ? "selected" : ""}>${o}</option>`).join("")}
       </select></label>
-    <label class="field"><span>교재</span>
+    <label class="field"><span>수령한 교재</span>
       <select class="inp" id="r-book" style="width:100%" ${hasBook ? "" : "disabled"}>
         ${hasBook
-          ? '<option value="환불">반납 · 교재비 환불</option><option value="수령">수령함 · 교재비 차감</option>'
-          : '<option value="없음">교재 없음</option>'}
-      </select></label>
+          ? Array.from({ length: bookTotal + 1 }, (_, i) =>
+              `<option value="${i}">${i === 0 ? "없음 · 전액 환불" : `${i}권 수령 · ${C.won(i * unit)} 차감`}</option>`).join("")
+          : '<option value="0">교재 없음</option>'}
+      </select>
+      <span id="r-bookinfo" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
     <dl class="dl" style="margin-top:18px">
       <dt>총 결제액</dt><dd>${C.won(c?.fee?.total)}</dd>
       <dt>1회 교습비</dt><dd>${C.won(totalSessions ? Math.round((c?.fee?.tuition || 0) / totalSessions) : null)}</dd>
-      <dt>교재비</dt><dd>${hasBook ? C.won(c.fee.book) : "없음"}</dd>
+      <dt>교재비</dt><dd>${hasBook ? `${C.won(c.fee.book)} (${bookTotal}권 × ${C.won(unit)})` : "없음"}</dd>
       <dt>환불 예상액</dt><dd class="strong" id="r-amt" style="font-size:17px;color:var(--teal-d)">-</dd>
     </dl>
     <button class="btn btn-pri" id="r-go" style="width:100%;justify-content:center;margin-top:6px">환불 확정</button>
     <p style="font-size:12px;color:var(--muted);margin:10px 0 0">
       확정하면 이 학생은 환불자 명단으로 이동합니다. 되돌리려면 환불자 명단에서 처리하세요.</p>`);
 
-  const read = () => ({
-    canceledAt: $("#r-date", d).value || today,
-    type: $("#r-type", d).value,
-    bookRefund: $("#r-book", d).value,
-  });
+  const read = () => {
+    const kept = Number($("#r-book", d).value) || 0;
+    return {
+      canceledAt: $("#r-date", d).value || today,
+      type: $("#r-type", d).value,
+      bookKept: kept,
+      bookRefund: !hasBook ? "없음" : kept === 0 ? "환불" : kept === bookTotal ? "수령" : `${kept}권 수령`,
+    };
+  };
+  const paintBook = () => {
+    const at = $("#r-date", d).value || today;
+    const given = C.booksGiven(c, at);
+    $("#r-book", d).value = String(given);
+    const list = C.bookList(c);
+    $("#r-bookinfo", d).innerHTML = hasBook
+      ? `배부 기록 기준 <b>${given}권</b> 수령 — ${list.map((b) =>
+          `${b.no}권 ${b.date ? C.fmt(b.date) : "미배부"}`).join(", ")}. 실제와 다르면 직접 고르세요.`
+      : "";
+  };
   const paint = () => { $("#r-amt", d).textContent = C.won(C.refundAmount(c, read())); };
-  ["#r-date", "#r-type", "#r-book"].forEach((sel) => {
-    const el = $(sel, d);
-    el.addEventListener("change", () => {
-      if (sel === "#r-date") $("#r-type", d).value = C.refundTypeFor(C.sessionsTaken(c, el.value, startNo));
-      paint();
-    });
+  $("#r-date", d).addEventListener("change", (ev) => {
+    $("#r-type", d).value = C.refundTypeFor(C.sessionsTaken(c, ev.target.value, startNo));
+    paintBook(); paint();
   });
+  ["#r-type", "#r-book"].forEach((sel) => $(sel, d).addEventListener("change", paint));
+  paintBook();
   paint();
 
   $("#r-go", d).onclick = async (ev) => {
@@ -944,7 +1014,9 @@ export function viewRefunds() {
       <td>${esc(c?.title) || esc(e.courseId)}</td>
       <td>${e.refund?.type === "전액" ? '<span class="tag tag-danger">전액</span>'
         : `<span class="tag tag-warn">${esc(e.refund?.type) || "-"}</span>`}</td>
-      <td>${esc(e.refund?.bookRefund) || '<span class="dim">-</span>'}</td>
+      <td>${e.refund?.bookKept != null
+        ? (e.refund.bookKept ? `${e.refund.bookKept}권 수령` : '<span class="dim">반납</span>')
+        : (esc(e.refund?.bookRefund) || '<span class="dim">-</span>')}</td>
       <td class="num strong">${C.won(amt)}</td>
       <td>${done ? `<span class="tag tag-ok">${C.fmt(e.refund.settledAt)}</span>`
         : '<span class="dim">미처리</span>'}</td></tr>`;
