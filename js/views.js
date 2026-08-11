@@ -159,7 +159,7 @@ export function viewDashboard() {
       || String(a.subject).localeCompare(b.subject));
 
   const sum = list.reduce((a, c) => {
-    const n = C.countsFor(c.id, enrollments, waitlist);
+    const n = C.countsFor(c.id, enrollments, waitlist, c);
     a.active += n.active; a.attending += n.attending; a.applied += n.applied;
     a.canceled += n.canceled; a.refunded += n.refunded; a.waiting += n.waiting;
     return a;
@@ -192,7 +192,7 @@ export function viewDashboard() {
         <th class="ctr">정원</th><th class="ctr">개강</th><th class="ctr">회차</th><th>수업일</th>
       </tr></thead><tbody>
       ${list.map((c) => {
-        const n = C.countsFor(c.id, enrollments, waitlist);
+        const n = C.countsFor(c.id, enrollments, waitlist, c);
         const cap = c.cap1 || c.cap2 || null;
         const pct = cap ? Math.min(Math.round((n.active / cap) * 100), 130) : 0;
         const cls = !cap ? "" : n.active > cap ? "over" : n.active === cap ? "full" : "";
@@ -204,7 +204,8 @@ export function viewDashboard() {
           <td>${esc((c.teachers || []).join(", "))}</td>
           <td>${esc([c.day1, c.time1].filter(Boolean).join(" "))}</td>
           <td class="ctr">${esc(c.room) || '<span class="dim">-</span>'}</td>
-          <td class="ctr strong">${n.active}</td>
+          <td class="ctr strong" ${n.archived ? 'title="학생 정보 삭제 후 보관된 최종 집계"' : ""}>${
+            n.active}${n.archived ? '<span class="dim" style="font-size:9px;margin-left:2px">보관</span>' : ""}</td>
           <td class="ctr">${n.attending}</td>
           <td class="ctr">${n.applied ? `<span class="tag tag-warn">${n.applied}</span>` : '<span class="dim">0</span>'}</td>
           <td class="ctr">${n.canceled || '<span class="dim">0</span>'}</td>
@@ -227,7 +228,7 @@ export function viewDashboard() {
 function courseDrawer(id) {
   const c = S.state.courses.find((x) => x.id === id);
   if (!c) return;
-  const n = C.countsFor(id, S.state.enrollments, S.state.waitlist);
+  const n = C.countsFor(id, S.state.enrollments, S.state.waitlist, c);
   const mins = C.minutesOf(c.time1);
   const roster = S.state.enrollments.filter((e) => e.courseId === id && C.ACTIVE.includes(C.normStatus(e.status)))
     .map((e) => ({ e, s: S.state.students.find((s) => s.id === e.studentId) }))
@@ -1763,82 +1764,121 @@ function feeDrawer() {
 // ════════════════════════════════════════════════════════════════
 // 데이터 관리 — 전체 백업 · 삭제
 // ════════════════════════════════════════════════════════════════
-const DEL_TARGETS = [
-  { key: "enrollments", label: "수강·환불 내역", col: "enrollments" },
-  { key: "waitlist", label: "대기자", col: "waitlist" },
-  { key: "students", label: "학생 정보", col: "students" },
-  { key: "courses", label: "강좌", col: "courses" },
-];
-
 export function dataDrawer() {
-  const cnt = (k) => S.state[k]?.length || 0;
+  const scopeYears = allYears();
 
   const d = drawer("데이터 관리", "백업을 먼저 받은 뒤 삭제하세요", `
     <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">1. 전체 백업</h4>
     <label class="field"><span>범위</span>
       <select class="inp" id="bk-scope" style="width:100%">
-        <option value="year">${yearFilter}년만</option>
+        ${scopeYears.map((y) => `<option value="${y}" ${y === yearFilter ? "selected" : ""}>${y}년만</option>`).join("")}
         <option value="all">전체 연도</option>
       </select></label>
     <button class="btn btn-pri" id="bk-go" style="width:100%;justify-content:center">
       <i data-lucide="download"></i>엑셀로 백업 받기</button>
     <p style="font-size:12px;color:var(--muted);margin:8px 0 22px">
-      강좌·수강내역·학생·대기자·수업일·일정을 시트별로 담은 파일 하나가 받아집니다.</p>
+      현황표 · 학생명단 · 환불명단 · 대기자 · 학생정보 · 수업일 · 일정을 시트별로 담은 파일 하나가 받아집니다.</p>
 
-    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-top:16px;border-top:1px solid var(--line-s)">2. 데이터 삭제</h4>
+    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px;padding-top:16px;border-top:1px solid var(--line-s)">
+      2. 학생 정보 삭제</h4>
+    <label class="field"><span>범위</span>
+      <select class="inp" id="del-scope" style="width:100%">
+        ${scopeYears.map((y) => `<option value="${y}" ${y === yearFilter ? "selected" : ""}>${y}년만</option>`).join("")}
+        <option value="all">전체 연도</option>
+      </select></label>
+    <div id="del-plan" class="log" style="font-size:13px;margin-bottom:14px"></div>
+    <div class="banner banner-info"><i data-lucide="info"></i>
+      <div><b>현황표는 남습니다.</b> 삭제 직전에 강좌별 인원·수강·신청·취소·환불 최종 집계를
+      강좌에 새겨두므로, 지난해 수강 현황을 계속 확인할 수 있습니다.</div></div>
     <div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
-      <div><b>되돌릴 수 없습니다.</b> 백업 파일을 먼저 열어 내용이 제대로 담겼는지 확인한 뒤 진행하세요.</div></div>
-    <div style="margin-bottom:14px">
-      ${DEL_TARGETS.map((t) => `<label style="display:flex;align-items:center;gap:9px;padding:7px 0;font-size:13px;cursor:pointer">
-        <input type="checkbox" data-del="${t.key}" style="width:16px;height:16px;accent-color:var(--danger)">
-        <span style="flex:1;font-weight:600">${t.label}</span>
-        <span class="dim">${cnt(t.key)}건</span></label>`).join("")}
-    </div>
+      <div><b>되돌릴 수 없습니다.</b> 백업 파일을 먼저 열어 내용이 제대로 담겼는지 확인하세요.</div></div>
     <label class="field"><span>확인 문구 — <b>삭제합니다</b> 를 그대로 입력</span>
       <input class="inp" id="del-confirm" style="width:100%" autocomplete="off" placeholder="삭제합니다"></label>
-    <div class="bar" style="height:8px;background:var(--line-s);border-radius:99px;overflow:hidden;margin:6px 0 6px">
+    <div class="bar" style="height:8px;background:var(--line-s);border-radius:99px;overflow:hidden;margin:6px 0">
       <i id="del-bar" style="display:block;height:100%;background:var(--danger);width:0;transition:width .25s"></i></div>
-    <p id="del-stat" style="font-size:12px;color:var(--muted);margin:0 0 12px">대상을 고르고 확인 문구를 입력하세요.</p>
-    <button class="btn btn-danger" id="del-go" style="width:100%;justify-content:center" disabled>선택한 데이터 삭제</button>
+    <p id="del-stat" style="font-size:12px;color:var(--muted);margin:0 0 12px"></p>
+    <button class="btn btn-danger" id="del-go" style="width:100%;justify-content:center" disabled>학생 정보 삭제</button>
     <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
-      일정·수업일 설정은 지워지지 않습니다. 필요하면 Firebase 콘솔에서 <code>config</code> 문서를 지우세요.</p>`);
+      강좌·수업일·일정 설정은 그대로 유지됩니다.</p>`);
 
   const el = (x) => $(x, d);
-  const picked = () => [...d.querySelectorAll("[data-del]:checked")].map((c) => c.dataset.del);
-  const refresh = () => {
-    const ok = picked().length > 0 && el("#del-confirm").value.trim() === "삭제합니다";
-    el("#del-go").disabled = !ok;
-    el("#del-stat").textContent = picked().length
-      ? `${picked().length}개 항목 · 총 ${picked().reduce((a, k) => a + cnt(k), 0)}건 삭제 예정`
-      : "대상을 고르고 확인 문구를 입력하세요.";
+
+  /** 삭제 대상 계산 */
+  const plan = () => {
+    const sc = el("#del-scope").value;
+    const inScope = (y) => sc === "all" || String(y) === sc;
+    const courses = S.state.courses.filter((c) => inScope(courseYear(c)));
+    const cids = new Set(courses.map((c) => c.id));
+    const enrolls = S.state.enrollments.filter((e) => inScope(enrollYear(e)) || cids.has(e.courseId));
+    const waits = S.state.waitlist.filter((w) => cids.has(w.courseId));
+    // 남는 수강 건에 등장하지 않는 학생만 삭제합니다.
+    const removedIds = new Set(enrolls.map((e) => e.id));
+    const keepStudent = new Set(S.state.enrollments
+      .filter((e) => !removedIds.has(e.id)).map((e) => e.studentId));
+    const students = S.state.students.filter((s2) => !keepStudent.has(s2.id));
+    return { courses, enrolls, waits, students };
   };
-  d.querySelectorAll("[data-del]").forEach((c) => c.addEventListener("change", refresh));
-  el("#del-confirm").addEventListener("input", refresh);
+
+  const paintPlan = () => {
+    const p = plan();
+    el("#del-plan").innerHTML = `
+      <div><span>수강·환불 내역</span><b>${p.enrolls.length}건 삭제</b></div>
+      <div><span>대기자</span><b>${p.waits.length}건 삭제</b></div>
+      <div><span>학생 정보</span><b>${p.students.length}건 삭제</b></div>
+      <div><span>강좌</span><b style="color:var(--teal-d)">${p.courses.length}건 유지 (집계 보관)</b></div>`;
+    const ok = el("#del-confirm").value.trim() === "삭제합니다"
+      && (p.enrolls.length + p.waits.length + p.students.length) > 0;
+    el("#del-go").disabled = !ok;
+    if (!el("#del-stat").textContent) el("#del-stat").textContent = "";
+  };
+  el("#del-scope").addEventListener("change", paintPlan);
+  el("#del-confirm").addEventListener("input", paintPlan);
+  paintPlan();
 
   el("#bk-go").onclick = (ev) => backupExcel(el("#bk-scope").value, ev.currentTarget);
 
   el("#del-go").onclick = async (ev) => {
-    const keys = picked();
-    const total = keys.reduce((a, k) => a + cnt(k), 0);
-    if (!confirm(`${keys.map((k) => DEL_TARGETS.find((t) => t.key === k).label).join(", ")}\n총 ${total}건을 영구 삭제합니다.\n\n정말 진행할까요?`)) return;
+    const p = plan();
+    const total = p.enrolls.length + p.waits.length + p.students.length;
+    if (!confirm(`수강 ${p.enrolls.length} · 대기 ${p.waits.length} · 학생 ${p.students.length}건을 영구 삭제합니다.\n강좌 ${p.courses.length}건은 최종 집계와 함께 남습니다.\n\n정말 진행할까요?`)) return;
     ev.target.disabled = true;
     let done = 0;
+    const tick = (n) => {
+      el("#del-bar").style.width = `${Math.round(((done + n) / (total + p.courses.length)) * 100)}%`;
+    };
     try {
-      for (const k of keys) {
-        const t = DEL_TARGETS.find((x) => x.key === k);
-        const ids = S.state[k].map((x) => x.id);
-        await S.deleteDocs(t.col, ids, (n) => {
-          el("#del-stat").textContent = `${t.label} ${n}/${ids.length} 삭제 중…`;
-          el("#del-bar").style.width = `${Math.round(((done + n) / total) * 100)}%`;
+      // ① 강좌에 최종 집계 새기기
+      el("#del-stat").textContent = "최종 집계를 강좌에 기록하는 중…";
+      for (const c of p.courses) {
+        const n = C.countsFor(c.id, S.state.enrollments, S.state.waitlist, c);
+        await S.saveCourse(c.id, {
+          finalCounts: {
+            active: n.active, attending: n.attending, applied: n.applied,
+            canceled: n.canceled, refunded: n.refunded, waiting: n.waiting,
+          },
+          archivedAt: C.iso(new Date()),
+        });
+        done += 1; tick(0);
+      }
+      // ② 학생 관련 데이터 삭제
+      const jobs = [
+        ["enrollments", p.enrolls.map((x) => x.id), "수강·환불 내역"],
+        ["waitlist", p.waits.map((x) => x.id), "대기자"],
+        ["students", p.students.map((x) => x.id), "학생 정보"],
+      ];
+      for (const [col, ids, label] of jobs) {
+        if (!ids.length) continue;
+        await S.deleteDocs(col, ids, (n) => {
+          el("#del-stat").textContent = `${label} ${n}/${ids.length} 삭제 중…`;
+          tick(n);
         });
         done += ids.length;
       }
       el("#del-bar").style.width = "100%";
-      el("#del-stat").textContent = `완료 · ${done}건 삭제`;
-      toast(`${done}건을 삭제했습니다.`);
+      el("#del-stat").textContent = `완료 · ${total}건 삭제, 강좌 ${p.courses.length}건 보관`;
       el("#del-confirm").value = "";
-      d.querySelectorAll("[data-del]").forEach((c) => { c.checked = false; });
-      refresh();
+      toast("학생 정보를 삭제했습니다. 현황표는 그대로 남아 있습니다.");
+      paintPlan();
     } catch (err) {
       el("#del-stat").textContent = `실패: ${err.code || err.message}`;
       ev.target.disabled = false;
@@ -1852,59 +1892,94 @@ async function backupExcel(scope, btn) {
   btn.disabled = true; btn.textContent = "만드는 중…";
   try {
     const XLSX = await loadSheetJs();
-    const inYear = (y) => scope === "all" || y === yearFilter;
+    const inYear = (y) => scope === "all" || String(y) === String(scope);
     const { courses, students, enrollments, waitlist } = S.state;
     const wb = XLSX.utils.book_new();
     const add = (name, rows, widths) => {
       const ws = XLSX.utils.aoa_to_sheet(rows);
       if (widths) ws["!cols"] = widths.map((w) => ({ wch: w }));
+      ws["!freeze"] = { xSplit: 0, ySplit: 1 };
       XLSX.utils.book_append_sheet(wb, ws, name);
     };
+    const cs = courses.filter((c) => inYear(courseYear(c)))
+      .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term)
+        || String(a.subject).localeCompare(b.subject));
 
-    const cs = courses.filter((c) => inYear(courseYear(c)));
-    add("강좌", [["연도", "기수", "과목", "강의명", "담당", "요일", "시간", "강의실", "정원",
-      "회차", "개강", "종강", "교습비", "교재비", "총액", "교재명", "출석부"],
-      ...cs.map((c) => [courseYear(c), c.term, c.subject, c.title, (c.teachers || []).join(","),
-        c.day1, c.time1, c.room, c.cap1, (c.sessions || []).length,
-        c.sessions?.[0]?.date || "", c.sessions?.[c.sessions.length - 1]?.date || "",
-        c.fee?.tuition, c.fee?.book, c.fee?.total, c.textbook?.title, c.attendanceUrl])],
-      [6, 6, 6, 26, 14, 7, 14, 8, 6, 6, 12, 12, 10, 9, 10, 20, 30]);
+    // ── 현황표 (집계 포함) ──
+    add("현황표", [["연도", "기수", "과목", "강의명", "담당", "요일", "시간", "강의실",
+      "인원", "수강", "신청", "취소", "환불", "대기", "정원",
+      "회차", "개강", "종강", "교습비", "교재비", "총액", "결제액", "교재명"],
+      ...cs.map((c) => {
+        const n = C.countsFor(c.id, enrollments, waitlist, c);
+        return [courseYear(c), c.term, c.subject, c.title, (c.teachers || []).join(","),
+          c.day1, c.time1, c.room,
+          n.active, n.attending, n.applied, n.canceled, n.refunded, n.waiting, c.cap1,
+          (c.sessions || []).length, c.sessions?.[0]?.date || "",
+          c.sessions?.[c.sessions.length - 1]?.date || "",
+          c.fee?.tuition, c.fee?.book, c.fee?.total,
+          (n.attending || 0) * (c.fee?.total || 0), c.textbook?.title];
+      })],
+      [6, 6, 6, 26, 14, 7, 14, 8, 6, 6, 6, 6, 6, 6, 6, 6, 12, 12, 10, 9, 10, 12, 20]);
 
-    const es = enrollments.filter((e) => inYear(enrollYear(e)));
-    add("수강내역", [["연도", "기수", "학번", "성명", "반", "강좌", "시작회차", "결제주체", "결제일",
-      "상태", "취소일", "환불유형", "교재", "환불예상액", "최종환불일"],
-      ...es.map((e) => {
-        const c = courses.find((x) => x.id === e.courseId);
-        const s = students.find((x) => x.id === e.studentId);
-        return [enrollYear(e), e.term, e.studentId, s?.name, s?.classGroup, c?.title,
-          e.startSession || 1, e.payer, e.paidAt, C.normStatus(e.status),
-          e.refund?.canceledAt, e.refund?.type, e.refund?.bookRefund,
-          C.refundAmount(c, e.refund), e.refund?.settledAt];
-      })], [6, 6, 8, 10, 5, 26, 8, 11, 12, 8, 12, 10, 8, 12, 12]);
+    const es = enrollments.filter((e) => inYear(enrollYear(e)))
+      .sort((a, b) => String(a.studentId).localeCompare(String(b.studentId), "ko", { numeric: true }));
+    const nameOf = (id) => students.find((x) => x.id === id) || {};
+    const titleOf = (id) => courses.find((x) => x.id === id)?.title || id;
 
-    add("학생", [["학번", "성명", "반", "그룹", "기숙사", "수험번호", "전형", "상태"],
-      ...students.map((s) => [s.id, s.name, s.classGroup, s.group, s.dorm, s.examNo, s.admissionType, s.status])],
-      [8, 10, 5, 5, 9, 10, 12, 8]);
+    // ── 학생명단 (신청·수강·취소) ──
+    add("학생명단", [["연도", "기수", "학번", "성명", "반", "그룹", "강좌", "시작회차",
+      "결제주체", "결제일", "상태"],
+      ...es.filter((e) => C.normStatus(e.status) !== "환불").map((e) => {
+        const st = nameOf(e.studentId);
+        return [enrollYear(e), e.term, e.studentId, st.name, st.classGroup, st.group,
+          titleOf(e.courseId), e.startSession || 1, e.payer, e.paidAt, C.normStatus(e.status)];
+      })], [6, 6, 8, 10, 5, 5, 26, 8, 11, 12, 8]);
 
+    // ── 환불명단 ──
+    add("환불명단", [["연도", "기수", "취소일", "학번", "성명", "반", "강좌",
+      "환불유형", "교재", "환불예상액", "최종환불일"],
+      ...es.filter((e) => C.normStatus(e.status) === "환불")
+        .sort((a, b) => String(a.refund?.canceledAt ?? "").localeCompare(String(b.refund?.canceledAt ?? "")))
+        .map((e) => {
+          const st = nameOf(e.studentId);
+          const c = courses.find((x) => x.id === e.courseId);
+          return [enrollYear(e), e.term, e.refund?.canceledAt, e.studentId, st.name, st.classGroup,
+            c?.title || e.courseId, e.refund?.type, e.refund?.bookRefund,
+            C.refundAmount(c, e.refund), e.refund?.settledAt];
+        })], [6, 6, 12, 8, 10, 5, 26, 10, 8, 12, 12]);
+
+    // ── 대기자 ──
+    const ws2 = waitlist.filter((w) => {
+      const c = courses.find((x) => x.id === w.courseId);
+      return !c || inYear(courseYear(c));
+    });
     add("대기자", [["등록시각", "학번", "이름", "반", "대기강좌", "안내발송", "처리", "비고"],
-      ...waitlist.map((w) => [w.registeredAt, w.studentId, w.name, w.classGroup,
+      ...ws2.map((w) => [w.registeredAt, w.studentId, w.name, w.classGroup,
         w.courseTitle, w.notifiedAt, w.state, w.memo])], [18, 8, 10, 5, 26, 12, 8, 20]);
 
+    // ── 학생정보 ──
+    add("학생정보", [["학번", "성명", "반", "그룹", "기숙사", "수험번호", "전형", "상태"],
+      ...students.slice().sort((a, b) => String(a.id).localeCompare(String(b.id), "ko", { numeric: true }))
+        .map((s2) => [s2.id, s2.name, s2.classGroup, s2.group, s2.dorm, s2.examNo, s2.admissionType, s2.status])],
+      [8, 10, 5, 5, 9, 10, 12, 8]);
+
+    // ── 수업일 ──
     const cal = S.state.calendars || {};
     const calRows = [["연도", "날짜", "요일", "구분"]];
-    Object.entries(cal).filter(([k]) => /^\d{4}$/.test(k) && (scope === "all" || Number(k) === yearFilter))
+    Object.entries(cal).filter(([k]) => /^\d{4}$/.test(k) && inYear(k))
       .forEach(([yy, v]) => Object.entries(v.cells || {}).sort()
         .forEach(([dt, val]) => calRows.push([yy, dt, C.dayName(dt), val])));
     add("수업일", calRows, [6, 12, 6, 10]);
 
-    const sc = S.state.schedule || {};
+    // ── 일정 ──
+    const sc2 = S.state.schedule || {};
     const scRows = [["연도", "시작일", "종료일", "내용", "분류"]];
-    Object.entries(sc).filter(([k]) => scope === "all" || Number(k) === yearFilter)
+    Object.entries(sc2).filter(([k]) => inYear(k))
       .forEach(([yy, list]) => (list || []).forEach((e) =>
         scRows.push([yy, e.date, e.end || "", e.label, e.cat || ""])));
     add("일정", scRows, [6, 12, 12, 30, 8]);
 
-    const tag = scope === "all" ? "전체" : `${yearFilter}년`;
+    const tag = scope === "all" ? "전체" : `${scope}년`;
     XLSX.writeFile(wb, `QUETTA특강_백업_${tag}_${C.iso(new Date())}.xlsx`);
     toast("백업 파일을 내려받았습니다.");
   } catch (err) {

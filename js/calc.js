@@ -116,8 +116,13 @@ export function refundAmount(course, refund) {
 }
 
 // ── 집계 ────────────────────────────────────────────────────────
-export function countsFor(courseId, enrollments, waitlist) {
+export function countsFor(courseId, enrollments, waitlist, course) {
   const es = enrollments.filter((e) => e.courseId === courseId);
+  const ws = waitlist.filter((w) => w.courseId === courseId);
+  // 학생 정보를 지운 뒤에는 강좌에 새겨둔 최종 집계를 씁니다.
+  if (!es.length && !ws.length && course?.finalCounts) {
+    return { ...course.finalCounts, archived: true };
+  }
   const st = (e) => normStatus(e.status);
   return {
     active: es.filter((e) => ACTIVE.includes(st(e))).length,
