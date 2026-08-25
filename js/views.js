@@ -1,7 +1,7 @@
 // 화면 렌더링
-import * as S from "./store.js?v=6";
-import * as C from "./calc.js?v=6";
-import { pinLength, fixedLoginId } from "./config.js?v=6";
+import * as S from "./store.js?v=7";
+import * as C from "./calc.js?v=7";
+import { pinLength, fixedLoginId } from "./config.js?v=7";
 
 const $ = (s, r = document) => r.querySelector(s);
 export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
