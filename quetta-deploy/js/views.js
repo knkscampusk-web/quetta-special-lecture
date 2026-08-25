@@ -1,7 +1,8 @@
 // 화면 렌더링
-import * as S from "./store.js?v=8";
-import * as C from "./calc.js?v=8";
-import { pinLength, fixedLoginId } from "./config.js?v=8";
+const T = new URL(import.meta.url).search;
+const S = await import(`./store.js${T}`);
+const C = await import(`./calc.js${T}`);
+const { pinLength, fixedLoginId } = await import(`./config.js${T}`);
 
 const $ = (s, r = document) => r.querySelector(s);
 export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
