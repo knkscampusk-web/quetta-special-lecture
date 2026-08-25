@@ -387,7 +387,13 @@ function courseFormDrawer(courseId) {
 
     <button class="btn btn-pri" id="c-save" style="width:100%;justify-content:center;margin-top:6px">
       ${editing ? "수정 저장" : "강좌 추가"}</button>
-    ${editing ? '<p style="font-size:12px;color:var(--muted);margin:10px 0 0">강좌 ID는 바뀌지 않습니다. 이미 등록된 수강생은 그대로 유지됩니다.</p>' : ""}`);
+    ${editing ? `<p style="font-size:12px;color:var(--muted);margin:10px 0 18px">
+        강좌 ID는 바뀌지 않습니다. 이미 등록된 수강생은 그대로 유지됩니다.</p>
+      <div style="padding-top:16px;border-top:1px solid var(--line-s)">
+        <button class="btn btn-danger" id="c-del" style="width:100%;justify-content:center">
+          <i data-lucide="trash-2"></i>강좌 삭제</button>
+        <div id="c-delbox" hidden style="margin-top:12px"></div>
+      </div>` : ""}`);
 
   const el = (s2) => $(s2, d);
   let sessions = editing?.sessions ? editing.sessions.slice() : [];
@@ -436,6 +442,54 @@ function courseFormDrawer(courseId) {
   ["#c-time", "#c-bookfee"].forEach((sel) => el(sel).addEventListener("input", () => { feeHint(); bookHint(); }));
   bookHint();
   rebuild();
+
+  // ── 강좌 삭제 ────────────────────────────────────────────────
+  if (editing) {
+    el("#c-del").onclick = () => {
+      const es = S.state.enrollments.filter((x) => x.courseId === editing.id);
+      const ws = S.state.waitlist.filter((x) => x.courseId === editing.id);
+      const box = el("#c-delbox");
+      box.hidden = false;
+      el("#c-del").hidden = true;
+      box.innerHTML = `
+        <div class="banner banner-warn"><i data-lucide="alert-triangle"></i>
+          <div><b>${esc(editing.title)}</b> 강좌를 삭제합니다. 되돌릴 수 없습니다.</div></div>
+        <div class="log" style="font-size:13px;margin-bottom:12px">
+          <div><span>강좌</span><b>1건 삭제</b></div>
+          <div><span>수강·환불 내역</span><b ${es.length ? 'style="color:var(--danger)"' : ""}>${es.length}건 삭제</b></div>
+          <div><span>대기자</span><b ${ws.length ? 'style="color:var(--danger)"' : ""}>${ws.length}건 삭제</b></div>
+        </div>
+        ${es.length || ws.length ? `<p style="font-size:12px;color:var(--danger);margin:0 0 10px">
+          이 강좌에 연결된 학생 기록도 함께 지워집니다. 남겨야 한다면 먼저 다른 강좌로 옮기세요.</p>` : ""}
+        <label class="field"><span>확인 — <b>삭제</b> 를 입력</span>
+          <input class="inp" id="c-delword" style="width:100%" autocomplete="off" placeholder="삭제"></label>
+        <div style="display:flex;gap:8px">
+          <button class="btn" id="c-delcancel" style="flex:1;justify-content:center">취소</button>
+          <button class="btn btn-danger" id="c-delgo" style="flex:1;justify-content:center" disabled>삭제 실행</button>
+        </div>`;
+      window.lucide?.createIcons();
+
+      const word = el("#c-delword"), go = el("#c-delgo");
+      word.addEventListener("input", () => { go.disabled = word.value.trim() !== "삭제"; });
+      el("#c-delcancel").onclick = () => { box.hidden = true; el("#c-del").hidden = false; };
+      word.focus();
+
+      go.onclick = async (ev2) => {
+        ev2.target.disabled = true; ev2.target.textContent = "삭제 중…";
+        try {
+          if (es.length) await S.deleteDocs("enrollments", es.map((x) => x.id));
+          if (ws.length) await S.deleteDocs("waitlist", ws.map((x) => x.id));
+          await S.deleteDocs("courses", [editing.id]);
+          closeDrawer();
+          toast(`${editing.title} 강좌를 삭제했습니다.`);
+          render("dashboard");
+        } catch (err) {
+          toast("삭제하지 못했습니다: " + err.message);
+          ev2.target.disabled = false; ev2.target.textContent = "삭제 실행";
+        }
+      };
+    };
+  }
 
   el("#c-save").onclick = async (ev) => {
     const yr = Number(el("#c-year").value);
