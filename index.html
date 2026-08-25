@@ -6,7 +6,7 @@
 <title>특강 MASTER · 강남대성기숙 QUETTA</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
-<link rel="stylesheet" href="./assets/style.css?v=7">
+<link rel="stylesheet" href="./assets/style.css" id="appCss">
 </head>
 <body>
 
@@ -51,6 +51,16 @@
 </div>
 
 <script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
-<script type="module" src="./js/app.js?v=7"></script>
+<script>
+  // 배포 직후에도 옛 파일이 남지 않도록, 매번 새 주소로 불러옵니다.
+  (function () {
+    var t = Date.now();
+    document.getElementById("appCss").href = "./assets/style.css?t=" + t;
+    var s = document.createElement("script");
+    s.type = "module";
+    s.src = "./js/app.js?t=" + t;
+    document.body.appendChild(s);
+  })();
+</script>
 </body>
 </html>

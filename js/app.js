@@ -1,6 +1,7 @@
-import * as S from "./store.js?v=7";
-import { render, toast, dataDrawer, pinDrawer } from "./views.js?v=7";
-import { fixedLoginId, pinLength, autoLogin } from "./config.js?v=7";
+const T = new URL(import.meta.url).search;          // ?t=... 를 하위 모듈에 전달
+const S = await import(`./store.js${T}`);
+const { render, toast, dataDrawer, pinDrawer } = await import(`./views.js${T}`);
+const { fixedLoginId, pinLength, autoLogin } = await import(`./config.js${T}`);
 
 const $ = (s) => document.querySelector(s);
 let subscribed = false;

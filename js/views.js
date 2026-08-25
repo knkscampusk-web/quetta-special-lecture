@@ -1,7 +1,8 @@
 // 화면 렌더링
-import * as S from "./store.js?v=7";
-import * as C from "./calc.js?v=7";
-import { pinLength, fixedLoginId } from "./config.js?v=7";
+const T = new URL(import.meta.url).search;
+const S = await import(`./store.js${T}`);
+const C = await import(`./calc.js${T}`);
+const { pinLength, fixedLoginId } = await import(`./config.js${T}`);
 
 const $ = (s, r = document) => r.querySelector(s);
 export const esc = (v) => (v == null ? "" : String(v).replace(/[&<>"']/g,
@@ -469,9 +470,10 @@ function courseFormDrawer(courseId) {
 
   const feeHint = () => {
     const mins = C.minutesOf(el("#c-time").value);
-    const auto = C.tuitionOf(mins, sessions.length);
+    const live = sessions.filter((x) => !x.canceled).length;   // 휴강 제외
+    const auto = C.tuitionOf(mins, live);
     el("#c-feehint").innerHTML = auto
-      ? `계산값 ${C.won(auto)} (196원 × ${mins}분 × ${sessions.length}회)
+      ? `계산값 ${C.won(auto)} (196원 × ${mins}분 × ${live}회)
          <button class="btn btn-sm" id="c-apply" type="button" style="margin-left:6px">적용</button>`
       : "시간과 회차를 넣으면 교습비 계산값이 표시됩니다.";
     const btn = el("#c-apply");
