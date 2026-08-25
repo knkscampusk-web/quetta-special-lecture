@@ -226,7 +226,9 @@ export function viewDashboard() {
           <td class="ctr">${n.waiting || '<span class="dim">0</span>'}</td>
           <td class="ctr">${cap ? `<span class="gauge"><i class="${cls}" style="width:${pct}%"></i></span> <span class="dim">${cap}</span>` : '<span class="dim">-</span>'}</td>
           <td class="ctr">${open ? C.fmt(open) : '<span class="dim">-</span>'}</td>
-          <td class="ctr">${(c.sessions || []).length}</td>
+          <td class="ctr" ${(c.sessions || []).some((x) => x.canceled)
+            ? `title="전체 ${(c.sessions || []).length}주 중 휴강 ${(c.sessions || []).filter((x) => x.canceled).length}회 제외"` : ""}>${
+            (c.sessions || []).filter((x) => !x.canceled).length}</td>
           <td class="ctr">${bookChips(c, today)}</td>
           <td class="days">${sessionChips(c.sessions, today)}</td>
         </tr>`;
@@ -272,7 +274,10 @@ function courseDrawer(id) {
             style="flex:1;padding:5px 9px" ${b.date ? "" : "disabled"}>
         </div>`).join("")}
       </div>` : ""}
-    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">수업 일정 (${(c.sessions || []).length}회)</h4>
+    <h4 style="font-size:12px;color:var(--muted);margin:0 0 8px">수업 일정 (${
+      (c.sessions || []).filter((x) => !x.canceled).length}회${
+      (c.sessions || []).some((x) => x.canceled)
+        ? ` · 휴강 ${(c.sessions || []).filter((x) => x.canceled).length}회` : ""})</h4>
     <div class="daylist">${(c.sessions || []).map((s) =>
       `<span class="day ${s.canceled ? "skip" : ""}">${s.no}회 ${C.fmt(s.date)}</span>`).join("") || '<span class="dim">등록된 회차 없음</span>'}</div>
     <h4 style="font-size:12px;color:var(--muted);margin:22px 0 8px">명단 ${roster.length}명</h4>
@@ -2093,7 +2098,7 @@ async function backupExcel(scope, btn) {
         return [courseYear(c), c.term, c.subject, c.title, (c.teachers || []).join(","),
           c.day1, c.time1, c.room,
           n.active, n.attending, n.applied, n.canceled, n.refunded, n.waiting, c.cap1,
-          (c.sessions || []).length, c.sessions?.[0]?.date || "",
+          (c.sessions || []).filter((x) => !x.canceled).length, c.sessions?.[0]?.date || "",
           c.sessions?.[c.sessions.length - 1]?.date || "",
           c.fee?.tuition, c.fee?.book, c.fee?.total,
           (n.attending || 0) * (c.fee?.total || 0), c.textbook?.title];
