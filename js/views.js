@@ -322,6 +322,12 @@ const shortTitle = (t) => String(t || "")
   .replace(/\s+/g, "")
   .replace(/확률과통계/g, "확통");
 
+const lastSessionDate = (c) => {
+  const list = c?.sessions || [];
+  return list.length ? list[list.length - 1].date : null;
+};
+const countOfSessions = (c) => (c?.sessions || []).filter((x) => !x.canceled).length;
+
 /** 강좌 추가 · 수정 */
 function courseFormDrawer(courseId) {
   const editing = courseId ? S.state.courses.find((x) => x.id === courseId) : null;
@@ -355,15 +361,21 @@ function courseFormDrawer(courseId) {
       <label class="field" style="margin:0"><span>강의실</span>
         <input class="inp" id="c-room" value="${esc(editing?.room || "")}" style="width:100%"></label>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
       <label class="field" style="margin:0"><span>개강일</span>
         <input class="inp" type="date" id="c-start" value="${esc(editing?.sessions?.[0]?.date || "")}" style="width:100%"></label>
+      <label class="field" style="margin:0"><span>종강일 (선택)</span>
+        <input class="inp" type="date" id="c-end" value="${esc(lastSessionDate(editing) || "")}" style="width:100%"></label>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
       <label class="field" style="margin:0"><span>회차</span>
-        <input class="inp" type="number" id="c-count" min="1" max="20" value="${(editing?.sessions || []).length || 8}" style="width:100%"></label>
+        <input class="inp" type="number" id="c-count" min="1" max="30" value="${countOfSessions(editing) || 8}" style="width:100%"></label>
       <label class="field" style="margin:0"><span>정원</span>
         <input class="inp" type="number" id="c-cap" min="0" value="${editing?.cap1 ?? ""}" style="width:100%"></label>
     </div>
-    <div id="c-sess" style="margin:10px 0 4px"></div>
+    <p style="font-size:12px;color:var(--muted);margin:8px 0 4px">
+      날짜를 누르면 휴강으로 바뀝니다. 모의고사·정기휴가·휴강일은 자동으로 빠집니다.</p>
+    <div id="c-sess" style="margin:6px 0 4px"></div>
 
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:8px">
       <label class="field" style="margin:0"><span>교재명</span>
@@ -397,23 +409,61 @@ function courseFormDrawer(courseId) {
 
   const el = (s2) => $(s2, d);
   let sessions = editing?.sessions ? editing.sessions.slice() : [];
+  // 사용자가 직접 켜고 끈 휴강 표시 (자동 판정보다 우선)
+  const manual = new Map((editing?.sessions || []).map((x) => [x.date, !!x.canceled]));
+
+  /** 개강일부터 요일 간격으로 후보 날짜를 만듭니다. 종강일이 있으면 그때까지. */
+  const slotDates = () => {
+    const start = el("#c-start").value;
+    const end = el("#c-end").value;
+    const want = Number(el("#c-count").value) || 0;
+    if (!start) return [];
+    const ex = exceptsOfYear(Number(el("#c-year").value));
+    const isOff = (dt) => (manual.has(dt) ? manual.get(dt) : ex.has(dt));
+    const out = [];
+    let cur = C.parse(start), guard = 0, live = 0;
+    // 개강일이 선택 요일과 다르면 개강일 자체를 1회차로 인정합니다.
+    while (guard++ < 300) {
+      const dt = C.iso(cur);
+      if (end && dt > end) break;
+      const off = isOff(dt);
+      out.push({ date: dt, canceled: off, reason: !manual.has(dt) ? ex.get(dt) : null });
+      if (!off) live++;
+      if (!end && live >= want) break;
+      cur.setDate(cur.getDate() + 7);
+    }
+    return out;
+  };
 
   const rebuild = () => {
-    const start = el("#c-start").value;
-    const count = Number(el("#c-count").value);
-    const yr = Number(el("#c-year").value);
-    if (!start || !count) { sessions = []; el("#c-sess").innerHTML = ""; return feeHint(); }
-    const rows = C.buildSessions({
-      startDate: start, weekday: el("#c-day").value, count, excepts: exceptsOfYear(yr),
-    });
-    sessions = rows.filter((r) => !r.skipped).map((r) => ({ no: r.no, date: r.date, canceled: false }));
-    const skipped = rows.filter((r) => r.skipped);
-    el("#c-sess").innerHTML = `<div class="daylist">${rows.map((r) => r.skipped
-      ? `<span class="day skip" title="${esc(r.reason)}">${esc(r.reason)} ${C.fmt(r.date)}</span>`
-      : `<span class="day">${r.no}회 ${C.fmt(r.date)}</span>`).join("")}</div>
+    const slots = slotDates();
+    if (!slots.length) { sessions = []; el("#c-sess").innerHTML = ""; return feeHint(); }
+    let no = 0;
+    sessions = slots.map((x) => ({ no: x.canceled ? null : ++no, date: x.date, canceled: x.canceled }));
+    const live = sessions.filter((x) => !x.canceled);
+    if (el("#c-end").value) el("#c-count").value = live.length;
+
+    el("#c-sess").innerHTML = `<div class="daylist">${sessions.map((x, i) => {
+      const s2 = slots[i];
+      return `<span class="day ${x.canceled ? "skip" : ""}" data-slot="${x.date}"
+        style="cursor:pointer" title="${x.canceled
+          ? (s2.reason ? s2.reason + " · 눌러서 되살리기" : "휴강 · 눌러서 되살리기")
+          : "눌러서 휴강 처리"}">${x.canceled
+          ? `${s2.reason || "휴강"} ${C.fmt(x.date)}`
+          : `${x.no}회 ${C.fmt(x.date)}`}</span>`;
+    }).join("")}</div>
       <p style="font-size:12px;color:var(--muted);margin:8px 0 0">
-        ${sessions.length}회 편성${skipped.length ? ` · ${skipped.length}주 건너뜀` : ""}${
-          sessions.length ? ` · ${C.fmt(sessions[0].date)} 개강, ${C.fmt(sessions[sessions.length - 1].date)} 종강` : ""}</p>`;
+        <b style="color:var(--ink)">${live.length}회 편성</b>${
+          sessions.length - live.length ? ` · 휴강 ${sessions.length - live.length}회` : ""}${
+          live.length ? ` · ${C.fmt(live[0].date)} 개강, ${C.fmt(live[live.length - 1].date)} 종강` : ""}</p>`;
+
+    el("#c-sess").querySelectorAll("[data-slot]").forEach((chip) =>
+      chip.addEventListener("click", () => {
+        const dt = chip.dataset.slot;
+        const cur = sessions.find((x) => x.date === dt);
+        manual.set(dt, !cur.canceled);
+        rebuild();
+      }));
     feeHint();
   };
 
@@ -431,7 +481,8 @@ function courseFormDrawer(courseId) {
     };
   };
 
-  ["#c-start", "#c-count", "#c-day", "#c-year"].forEach((sel) => el(sel).addEventListener("change", rebuild));
+  ["#c-start", "#c-end", "#c-count", "#c-day", "#c-year"].forEach((sel) =>
+    el(sel).addEventListener("change", rebuild));
   const bookHint = () => {
     const fee = Number(el("#c-bookfee").value) || 0;
     const n = fee ? Math.max(1, Math.round(fee / C.BOOK_UNIT)) : 0;
