@@ -103,12 +103,18 @@ export function sessionsTaken(course, asOf = iso(new Date()), startNo = 1) {
 export const refundTypeFor = (n) => (n <= 0 ? "전액" : `${n}회수강`);
 
 // ── 교재 ────────────────────────────────────────────────────────
-export const BOOK_UNIT = 15000;                 // 교재 1권 기본 단가
+export const BOOK_TYPES = { S: 15000, A: 10000 };   // 교재 타입별 권당 단가
+export const BOOK_UNIT = BOOK_TYPES.S;             // 타입 정보가 없을 때 기본값
 
-export const bookUnit = (course) => course?.textbook?.unitPrice || BOOK_UNIT;
+export const bookUnit = (course) =>
+  course?.textbook?.unitPrice || BOOK_TYPES[course?.textbook?.type] || BOOK_UNIT;
 
-/** 교재비로부터 권수 산출 (30,000원 → 2권) */
+export const bookType = (course) => course?.textbook?.type || null;
+
+/** 권수. 저장된 값이 있으면 그대로, 없으면 교재비 ÷ 단가로 산출 */
 export function bookCount(course) {
+  const q = course?.textbook?.qty;
+  if (q != null) return Number(q) || 0;
   const fee = course?.fee?.book || 0;
   if (!fee) return 0;
   return Math.max(1, Math.round(fee / bookUnit(course)));
