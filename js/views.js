@@ -620,7 +620,7 @@ let q = "", statusFilter = "", courseFilter = "";
 
 export function viewStudents() {
   const { enrollments, students, courses } = S.state;
-  const rows = enrollments
+  const buildRows = () => enrollments
     .filter((e) => {
       const st = C.normStatus(e.status);
       if (st === "환불") return false;
@@ -637,6 +637,7 @@ export function viewStudents() {
     })
     .sort((a, b) => String(a.e.studentId).localeCompare(String(b.e.studentId), "ko", { numeric: true })
       || String(a.s?.name ?? "").localeCompare(String(b.s?.name ?? ""), "ko"));
+  let rows = buildRows();
 
   const courseOpts = courses
     .filter((c) => (!yearFilter || courseYear(c) === yearFilter) && (!termFilter || c.term === termFilter))
@@ -644,7 +645,7 @@ export function viewStudents() {
 
   host().innerHTML = `
   <div class="page-head">
-    <div><h1>특강학생명단</h1><p>학생 × 강좌 단위로 조회합니다. 총 ${rows.length}건.</p></div>
+    <div><h1>특강학생명단</h1><p>학생 × 강좌 단위로 조회합니다. 총 <b id="stu-count">${rows.length}</b>건.</p></div>
     <div class="toolbar">
       <button class="btn btn-pri" id="add"><i data-lucide="plus"></i>신청 추가</button>
       <button class="btn" id="upload"><i data-lucide="upload"></i>신청명단 불러오기</button>
@@ -665,12 +666,16 @@ export function viewStudents() {
   ${statusFilter === "취소" ? `<div class="banner banner-info"><i data-lucide="info"></i>
     <div>결제 전 취소한 이력입니다. 평소 명단에는 나오지 않으며, 같은 학생이 다시 신청하면
     <b>신청 추가</b>로 되살릴 수 있습니다.</div></div>` : ""}
-  <section class="card"><div class="tbl-wrap">${rows.length ? `<table class="tbl">
-    <thead><tr><th>반</th><th>그룹</th><th>학번</th><th>성명</th><th>기수</th><th>강좌</th>
+  <section class="card"><div class="tbl-wrap" id="stu-table">${tableHtml(rows)}</div></section>`;
+
+  function tableHtml(list) {
+    return list.length ? `<table class="tbl">
+    <thead><tr><th class="ctr">번호</th><th>반</th><th>그룹</th><th>학번</th><th>성명</th><th>기수</th><th>강좌</th>
       <th>시작회차</th><th>결제주체</th><th>결제일</th><th>상태</th><th></th></tr></thead>
-    <tbody>${rows.map(({ e, s, c }) => {
+    <tbody>${list.map(({ e, s, c }, i) => {
       const st = C.normStatus(e.status);
       return `<tr class="clickable" data-sid="${esc(e.studentId)}">
+      <td class="ctr dim">${i + 1}</td>
       <td>${esc(s?.classGroup) || "-"}</td><td>${esc(s?.group) || "-"}</td>
       <td class="dim">${esc(e.studentId)}</td><td class="strong">${esc(s?.name) || "-"}</td>
       <td><span class="tag tag-peri">${esc(e.term)}</span></td>
@@ -687,15 +692,35 @@ export function viewStudents() {
         : `<button class="btn btn-sm" data-restore="${esc(e.id)}">되살리기</button>`}</td>
     </tr>`;
     }).join("")}</tbody></table>`
-    : emptyBox("조건에 맞는 학생이 없습니다.", "검색어나 필터를 바꿔보세요.")}
-  </div></section>`;
+    : emptyBox("조건에 맞는 학생이 없습니다.", "검색어나 필터를 바꿔보세요.");
+  }
 
-  $("#q").oninput = (ev) => { q = ev.target.value; render("students"); $("#q").focus(); };
+  // 검색은 표만 다시 그립니다. 화면 전체를 새로 그리면 한글 입력이 끊깁니다.
+  const repaint = () => {
+    rows = buildRows();
+    $("#stu-table").innerHTML = tableHtml(rows);
+    $("#stu-count").textContent = rows.length;
+    bindRowEvents();
+  };
+  const qEl = $("#q");
+  let composing = false;
+  qEl.addEventListener("compositionstart", () => { composing = true; });
+  qEl.addEventListener("compositionend", () => { composing = false; q = qEl.value; repaint(); });
+  qEl.addEventListener("input", () => {
+    if (composing) return;              // 한글 조합 중에는 건드리지 않습니다
+    q = qEl.value;
+    repaint();
+  });
+
   $("#st").onchange = (ev) => { statusFilter = ev.target.value; render("students"); };
   $("#cf").onchange = (ev) => { courseFilter = ev.target.value; render("students"); };
   $("#add").onclick = () => addEnrollDrawer();
   $("#xlsx").onclick = (ev) => exportExcel(rows, ev.currentTarget);
   $("#upload").onclick = openRosterUpload;
+
+  bindRowEvents();
+
+  function bindRowEvents() {
   host().querySelectorAll("[data-pay]").forEach((b) => b.addEventListener("click", async (ev) => {
     ev.stopPropagation();
     const e = S.state.enrollments.find((x) => x.id === b.dataset.pay);
@@ -721,6 +746,7 @@ export function viewStudents() {
     refundDrawer(b.dataset.refund);
   }));
   host().querySelectorAll("[data-sid]").forEach((tr) => tr.addEventListener("click", () => studentDrawer(tr.dataset.sid)));
+  }
 }
 
 function studentDrawer(sid) {
