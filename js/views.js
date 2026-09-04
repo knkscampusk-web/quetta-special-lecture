@@ -258,7 +258,8 @@ function courseDrawer(id) {
       <dt>강의실</dt><dd>${esc(c.room) || "-"}</dd>
       <dt>교습비</dt><dd>${C.won(c.fee?.tuition)}${mins && c.sessions?.length ? ` <span class="dim">· 계산값 ${C.won(C.tuitionOf(mins, c.sessions.length))}</span>` : ""}</dd>
       <dt>교재</dt><dd>${esc(c.textbook?.title) || "없음"}${
-        c.fee?.book ? ` · ${C.won(c.fee.book)} (${C.bookCount(c)}권 × ${C.won(C.bookUnit(c))})` : ""}</dd>
+        C.bookCount(c) ? ` · ${C.bookType(c) ? C.bookType(c) + "타입 " : ""}${C.bookCount(c)}권 × ${
+          C.won(C.bookUnit(c))} = ${C.won(c.fee?.book)}` : ""}</dd>
       <dt>총액</dt><dd class="strong">${C.won(c.fee?.total)}</dd>
       ${c.attendanceUrl ? `<dt>출석부</dt><dd><a href="${esc(c.attendanceUrl)}" target="_blank" rel="noopener">열기</a></dd>` : ""}
       <dt>현황</dt><dd>인원 ${n.active} (수강 ${n.attending} · 신청 ${n.applied}) · 취소 ${n.canceled} · 환불 ${n.refunded} · 대기 ${n.waiting}</dd>
@@ -383,13 +384,21 @@ function courseFormDrawer(courseId) {
       날짜를 누르면 휴강으로 바뀝니다. 모의고사·정기휴가·휴강일은 자동으로 빠집니다.</p>
     <div id="c-sess" style="margin:6px 0 4px"></div>
 
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-top:8px">
-      <label class="field" style="margin:0"><span>교재명</span>
-        <input class="inp" id="c-book" value="${esc(editing?.textbook?.title || "")}" style="width:100%"></label>
-      <label class="field" style="margin:0"><span>교재비 (권당 ${C.BOOK_UNIT.toLocaleString()}원)</span>
-        <input class="inp" type="number" id="c-bookfee" min="0" step="${C.BOOK_UNIT}" value="${editing?.fee?.book ?? 0}" style="width:100%">
-        <span id="c-bookcnt" style="display:block;font-size:12px;color:var(--muted);margin-top:5px"></span></label>
+    <label class="field" style="margin-top:8px"><span>교재명</span>
+      <input class="inp" id="c-book" value="${esc(editing?.textbook?.title || "")}" style="width:100%"></label>
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:10px">
+      <label class="field" style="margin:0"><span>교재 타입</span>
+        <select class="inp" id="c-booktype" style="width:100%">
+          <option value="" ${!C.bookType(editing) && !(editing?.fee?.book) ? "selected" : ""}>없음</option>
+          ${Object.entries(C.BOOK_TYPES).map(([k, v]) => `<option value="${k}"
+            ${C.bookType(editing) === k || (!C.bookType(editing) && editing?.fee?.book && k === "S") ? "selected" : ""}
+            >${k}타입 · ${v.toLocaleString()}원</option>`).join("")}
+        </select></label>
+      <label class="field" style="margin:0"><span>권수</span>
+        <input class="inp" type="number" id="c-bookqty" min="0" max="10"
+               value="${C.bookCount(editing) || 0}" style="width:100%"></label>
     </div>
+    <p id="c-bookcnt" style="font-size:12px;color:var(--muted);margin:0 0 14px"></p>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px">
       <label class="field" style="margin:0"><span>교습비</span>
         <input class="inp" type="number" id="c-tuition" min="0" step="10" value="${editing?.fee?.tuition ?? ""}" style="width:100%"></label>
@@ -484,20 +493,27 @@ function courseFormDrawer(courseId) {
     const btn = el("#c-apply");
     if (btn) btn.onclick = () => {
       el("#c-tuition").value = auto;
-      el("#c-total").value = auto + Number(el("#c-bookfee").value || 0);
+      el("#c-total").value = auto + bookFee().fee;
     };
   };
 
   ["#c-start", "#c-end", "#c-count", "#c-day", "#c-year"].forEach((sel) =>
     el(sel).addEventListener("change", rebuild));
+  const bookFee = () => {
+    const t = el("#c-booktype").value;
+    const qty = t ? Number(el("#c-bookqty").value) || 0 : 0;
+    return { type: t || null, unit: C.BOOK_TYPES[t] || 0, qty, fee: (C.BOOK_TYPES[t] || 0) * qty };
+  };
   const bookHint = () => {
-    const fee = Number(el("#c-bookfee").value) || 0;
-    const n = fee ? Math.max(1, Math.round(fee / C.BOOK_UNIT)) : 0;
-    el("#c-bookcnt").textContent = n
-      ? `${n}권 · 배부일은 강좌 상세에서 권별로 체크합니다.`
+    const b = bookFee();
+    el("#c-bookqty").disabled = !b.type;
+    el("#c-bookcnt").textContent = b.qty
+      ? `교재비 ${C.won(b.fee)} (${b.type}타입 ${b.unit.toLocaleString()}원 × ${b.qty}권) · 배부일은 강좌 상세에서 권별로 체크합니다.`
       : "교재 없음";
   };
-  ["#c-time", "#c-bookfee"].forEach((sel) => el(sel).addEventListener("input", () => { feeHint(); bookHint(); }));
+  ["#c-time"].forEach((sel) => el(sel).addEventListener("input", () => { feeHint(); bookHint(); }));
+  ["#c-booktype", "#c-bookqty"].forEach((sel) =>
+    el(sel).addEventListener("input", () => { bookHint(); feeHint(); }));
   bookHint();
   rebuild();
 
@@ -563,7 +579,8 @@ function courseFormDrawer(courseId) {
       return toast("같은 이름의 강좌가 이미 있습니다. 강의명을 조금 다르게 하세요.");
     }
     const tuition = Number(el("#c-tuition").value) || null;
-    const book = Number(el("#c-bookfee").value) || 0;
+    const bk = bookFee();
+    const book = bk.fee;
 
     ev.target.disabled = true; ev.target.textContent = "저장 중…";
     try {
@@ -574,8 +591,13 @@ function courseFormDrawer(courseId) {
         room: el("#c-room").value.trim() || null,
         cap1: Number(el("#c-cap").value) || null,
         sessions, closedDates: editing?.closedDates || [],
-        textbook: { title: el("#c-book").value.trim() || null, qty: editing?.textbook?.qty ?? null,
-                    distributeDate: editing?.textbook?.distributeDate ?? null },
+        textbook: {
+          title: el("#c-book").value.trim() || null,
+          type: bk.type, unitPrice: bk.unit || null, qty: bk.qty,
+          // 권수가 줄면 초과분 배부 기록은 버립니다.
+          books: (editing?.textbook?.books || []).slice(0, bk.qty),
+          distributeDate: editing?.textbook?.distributeDate ?? null,
+        },
         fee: { tuition, book, total: Number(el("#c-total").value) || ((tuition || 0) + book) },
         attendanceUrl: el("#c-att").value.trim() || null,
         note: el("#c-note").value.trim() || null,
