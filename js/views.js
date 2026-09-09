@@ -810,6 +810,7 @@ function pasteDrawer() {
     <button class="btn btn-pri" id="pa-go" style="width:100%;justify-content:center" disabled>적용</button>`);
 
   const el = (x) => $(x, d);
+  let picks = {};                       // 번호별로 직접 고른 강좌
 
   const analyze = () => {
     const cid = el("#pa-course").value;
@@ -822,21 +823,38 @@ function pasteDrawer() {
       el("#pa-go").disabled = true;
       return null;
     }
-    const c = S.state.courses.find((x) => x.id === cid);
+    const base = S.state.courses.find((x) => x.id === cid);
+    const term = base?.term;
+    const wanted = mode === "pay" ? ["신청"] : ["신청", "수강"];
+
     const rows = nums.map((n) => {
       const st = S.state.students.find((x) => String(x.examNo) === n)
         || S.state.students.find((x) => String(x.id) === n);
       if (!st) return { n, note: "학생 없음", bad: true };
-      const e = S.state.enrollments.find((x) => x.studentId === st.id && x.courseId === cid);
-      if (!e) return { n, st, note: "이 강좌 신청 없음", bad: true };
-      const cur = C.normStatus(e.status);
-      if (mode === "pay") {
-        if (cur === "수강") return { n, st, e, note: "이미 수강", skip: true };
-        if (cur === "환불") return { n, st, e, note: "환불 건", bad: true };
-        return { n, st, e, note: `${cur} → 수강`, ok: true };
+
+      // 같은 기수에서 처리 가능한 이 학생의 다른 신청 건
+      const cands = S.state.enrollments.filter((x) => x.studentId === st.id
+        && x.term === term && wanted.includes(C.normStatus(x.status)));
+      const useId = picks[n] || cid;
+      const e = S.state.enrollments.find((x) => x.studentId === st.id && x.courseId === useId);
+      const others = cands.filter((x) => x.courseId !== useId);
+
+      if (!e) {
+        return cands.length
+          ? { n, st, cands, note: "이 강좌 신청 없음", bad: true, others: cands }
+          : { n, st, note: "이 강좌 신청 없음", bad: true };
       }
-      if (cur === "환불" || cur === "취소") return { n, st, e, note: `이미 ${cur}`, skip: true };
-      return { n, st, e, note: cur === "수강" ? "수강 → 환불" : "신청 → 취소", ok: true, refund: cur === "수강" };
+      const cur = C.normStatus(e.status);
+      const c = S.state.courses.find((x) => x.id === useId);
+      const common = { n, st, e, c, others, useId };
+      if (mode === "pay") {
+        if (cur === "수강") return { ...common, note: "이미 수강", skip: true };
+        if (cur === "환불") return { ...common, note: "환불 건", bad: true };
+        return { ...common, note: `${cur} → 수강`, ok: true };
+      }
+      if (cur === "환불" || cur === "취소") return { ...common, note: `이미 ${cur}`, skip: true };
+      return { ...common, note: cur === "수강" ? "수강 → 환불" : "신청 → 취소",
+               ok: true, refund: cur === "수강" };
     });
     const ok = rows.filter((r) => r.ok);
     el("#pa-preview").innerHTML = `
@@ -847,21 +865,38 @@ function pasteDrawer() {
         <div><span>확인 필요</span><b ${rows.some((r) => r.bad) ? 'style="color:var(--danger)"' : ""}>${
           rows.filter((r) => r.bad).length}건</b></div>
       </div>
-      <div class="tbl-wrap" style="max-height:220px;overflow:auto"><table class="tbl"><tbody>
+      ${rows.some((r) => r.others?.length) ? `<div class="banner banner-warn" style="margin-bottom:10px">
+        <i data-lucide="alert-triangle"></i>
+        <div>같은 기수에 다른 강좌도 신청한 학생이 있습니다. 어느 강좌를 결제했는지 확인하고, 다르면 아래에서 바꾸세요.</div></div>` : ""}
+      <div class="tbl-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><tbody>
         ${rows.map((r) => `<tr>
           <td class="dim">${esc(r.n)}</td>
           <td class="strong">${esc(r.st?.name) || "-"}</td>
+          <td>${r.others?.length
+            ? `<select class="inp" style="padding:3px 7px;font-size:12px;max-width:200px" data-pick="${esc(r.n)}">
+                ${[...(r.e ? [r.e] : []), ...r.others].map((x) => {
+                  const cc = S.state.courses.find((y) => y.id === x.courseId);
+                  return `<option value="${esc(x.courseId)}" ${x.courseId === r.useId ? "selected" : ""}>${
+                    esc(cc?.title || x.courseId)} · ${esc(C.normStatus(x.status))}</option>`;
+                }).join("")}
+              </select>`
+            : `<span class="dim" style="font-size:12px">${esc(r.c?.title || "")}</span>`}</td>
           <td>${r.bad ? `<span class="tag tag-danger">${esc(r.note)}</span>`
             : r.skip ? `<span class="tag tag-neutral">${esc(r.note)}</span>`
             : `<span class="tag tag-ok">${esc(r.note)}</span>`}</td>
         </tr>`).join("")}
       </tbody></table></div>`;
+    window.lucide?.createIcons();
+    el("#pa-preview").querySelectorAll("[data-pick]").forEach((sel) =>
+      sel.addEventListener("change", () => { picks[sel.dataset.pick] = sel.value; analyze(); }));
     el("#pa-go").disabled = !ok.length;
     el("#pa-go").textContent = ok.length ? `${ok.length}건 적용` : "적용";
-    return { rows, ok, c, at, mode };
+    return { rows, ok, at, mode };
   };
 
-  ["#pa-course", "#pa-mode", "#pa-date"].forEach((x) => el(x).addEventListener("change", analyze));
+  ["#pa-course", "#pa-mode"].forEach((x) =>
+    el(x).addEventListener("change", () => { picks = {}; analyze(); }));
+  el("#pa-date").addEventListener("change", analyze);
   el("#pa-text").addEventListener("input", analyze);
 
   el("#pa-go").onclick = async (ev) => {
@@ -879,8 +914,8 @@ function pasteDrawer() {
             status: "환불",
             refund: {
               canceledAt: r.at,
-              type: C.refundTypeFor(C.sessionsTaken(r.c, r.at, startNo)),
-              bookKept: C.booksGiven(r.c, r.at),
+              type: C.refundTypeFor(C.sessionsTaken(row.c, r.at, startNo)),
+              bookKept: C.booksGiven(row.c, r.at),
             },
           });
         } else {
