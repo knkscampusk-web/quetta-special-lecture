@@ -199,18 +199,19 @@ export function viewDashboard() {
     <div class="card-head"><h2>강좌 목록</h2><span class="sub">행을 누르면 상세가 열립니다</span></div>
     <div class="tbl-wrap">${list.length ? `<table class="tbl">
       <thead><tr>
-        <th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th class="ctr">강의실</th>
+        <th class="ctr">번호</th><th>기수</th><th>과목</th><th>강의명</th><th>담당</th><th>요일·시간</th><th class="ctr">강의실</th>
         <th class="ctr">인원</th><th class="ctr">수강</th><th class="ctr">신청</th>
         <th class="ctr">취소</th><th class="ctr">환불</th><th class="ctr">대기</th>
         <th class="ctr">정원</th><th class="ctr">개강</th><th class="ctr">회차</th><th class="ctr">교재</th><th>수업일</th>
       </tr></thead><tbody>
-      ${list.map((c) => {
+      ${list.map((c, idx) => {
         const n = C.countsFor(c.id, enrollments, waitlist, c);
         const cap = c.cap1 || c.cap2 || null;
         const pct = cap ? Math.min(Math.round((n.active / cap) * 100), 130) : 0;
         const cls = !cap ? "" : n.active > cap ? "over" : n.active === cap ? "full" : "";
         const open = (c.sessions || [])[0]?.date;
         return `<tr class="clickable" data-course="${esc(c.id)}">
+          <td class="ctr dim">${idx + 1}</td>
           <td><span class="tag tag-peri">${esc(c.term)}</span></td>
           <td>${esc(c.subject)}</td>
           <td class="strong">${esc(c.title)}</td>
@@ -648,6 +649,7 @@ export function viewStudents() {
     <div><h1>특강학생명단</h1><p>학생 × 강좌 단위로 조회합니다. 총 <b id="stu-count">${rows.length}</b>건.</p></div>
     <div class="toolbar">
       <button class="btn btn-pri" id="add"><i data-lucide="plus"></i>신청 추가</button>
+      <button class="btn" id="paste"><i data-lucide="clipboard-paste"></i>번호 붙여넣기</button>
       <button class="btn" id="upload"><i data-lucide="upload"></i>신청명단 불러오기</button>
       <button class="btn" id="xlsx"><i data-lucide="download"></i>엑셀파일로 저장</button>
     </div>
@@ -715,6 +717,7 @@ export function viewStudents() {
   $("#st").onchange = (ev) => { statusFilter = ev.target.value; render("students"); };
   $("#cf").onchange = (ev) => { courseFilter = ev.target.value; render("students"); };
   $("#add").onclick = () => addEnrollDrawer();
+  $("#paste").onclick = () => pasteDrawer();
   $("#xlsx").onclick = (ev) => exportExcel(rows, ev.currentTarget);
   $("#upload").onclick = openRosterUpload;
 
@@ -775,6 +778,124 @@ function studentDrawer(sid) {
       <div class="tbl-wrap"><table class="tbl"><tbody>${ws.map((w) =>
         `<tr><td>${esc(w.courseTitle)}</td><td><span class="tag tag-neutral">${esc(w.state)}</span></td></tr>`).join("")}
       </tbody></table></div>` : ""}`);
+}
+
+/** 수험번호·학번을 붙여넣어 결제확인·환불을 일괄 처리 */
+function pasteDrawer() {
+  const courses = S.state.courses
+    .filter((c) => !yearFilter || courseYear(c) === yearFilter)
+    .sort((a, b) => TERMS.indexOf(a.term) - TERMS.indexOf(b.term));
+  const today = C.iso(new Date());
+
+  const d = drawer("번호 붙여넣기", "등록관리 시스템에서 수험번호 열을 복사해 붙여넣으세요", `
+    <label class="field"><span>강좌</span>
+      <select class="inp" id="pa-course" style="width:100%">
+        <option value="">— 선택 —</option>
+        ${courses.map((c) => `<option value="${esc(c.id)}" ${c.id === courseFilter ? "selected" : ""}>
+          [${esc(c.term)}] ${esc(c.title)}</option>`).join("")}
+      </select></label>
+    <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:10px">
+      <label class="field" style="margin:0"><span>처리</span>
+        <select class="inp" id="pa-mode" style="width:100%">
+          <option value="pay">결제확인 (신청 → 수강)</option>
+          <option value="cancel">취소·환불 처리</option>
+        </select></label>
+      <label class="field" style="margin:0"><span>기준일</span>
+        <input class="inp" type="date" id="pa-date" value="${today}" style="width:100%"></label>
+    </div>
+    <label class="field"><span>수험번호 또는 학번 (줄바꿈·쉼표·공백 모두 인식)</span>
+      <textarea class="memo" id="pa-text" style="min-height:120px"
+        placeholder="634109&#10;660065&#10;634259"></textarea></label>
+    <div id="pa-preview" style="margin-bottom:14px"></div>
+    <button class="btn btn-pri" id="pa-go" style="width:100%;justify-content:center" disabled>적용</button>`);
+
+  const el = (x) => $(x, d);
+
+  const analyze = () => {
+    const cid = el("#pa-course").value;
+    const mode = el("#pa-mode").value;
+    const at = el("#pa-date").value || today;
+    const nums = [...new Set((el("#pa-text").value.match(/\d{3,}/g) || []))];
+    if (!cid || !nums.length) {
+      el("#pa-preview").innerHTML = nums.length
+        ? '<p style="font-size:13px;color:var(--muted);margin:0">강좌를 선택하세요.</p>' : "";
+      el("#pa-go").disabled = true;
+      return null;
+    }
+    const c = S.state.courses.find((x) => x.id === cid);
+    const rows = nums.map((n) => {
+      const st = S.state.students.find((x) => String(x.examNo) === n)
+        || S.state.students.find((x) => String(x.id) === n);
+      if (!st) return { n, note: "학생 없음", bad: true };
+      const e = S.state.enrollments.find((x) => x.studentId === st.id && x.courseId === cid);
+      if (!e) return { n, st, note: "이 강좌 신청 없음", bad: true };
+      const cur = C.normStatus(e.status);
+      if (mode === "pay") {
+        if (cur === "수강") return { n, st, e, note: "이미 수강", skip: true };
+        if (cur === "환불") return { n, st, e, note: "환불 건", bad: true };
+        return { n, st, e, note: `${cur} → 수강`, ok: true };
+      }
+      if (cur === "환불" || cur === "취소") return { n, st, e, note: `이미 ${cur}`, skip: true };
+      return { n, st, e, note: cur === "수강" ? "수강 → 환불" : "신청 → 취소", ok: true, refund: cur === "수강" };
+    });
+    const ok = rows.filter((r) => r.ok);
+    el("#pa-preview").innerHTML = `
+      <div class="log" style="font-size:13px;margin-bottom:10px">
+        <div><span>붙여넣은 번호</span><b>${nums.length}건</b></div>
+        <div><span>처리 대상</span><b style="color:var(--teal-d)">${ok.length}건</b></div>
+        <div><span>건너뜀</span><b>${rows.filter((r) => r.skip).length}건</b></div>
+        <div><span>확인 필요</span><b ${rows.some((r) => r.bad) ? 'style="color:var(--danger)"' : ""}>${
+          rows.filter((r) => r.bad).length}건</b></div>
+      </div>
+      <div class="tbl-wrap" style="max-height:220px;overflow:auto"><table class="tbl"><tbody>
+        ${rows.map((r) => `<tr>
+          <td class="dim">${esc(r.n)}</td>
+          <td class="strong">${esc(r.st?.name) || "-"}</td>
+          <td>${r.bad ? `<span class="tag tag-danger">${esc(r.note)}</span>`
+            : r.skip ? `<span class="tag tag-neutral">${esc(r.note)}</span>`
+            : `<span class="tag tag-ok">${esc(r.note)}</span>`}</td>
+        </tr>`).join("")}
+      </tbody></table></div>`;
+    el("#pa-go").disabled = !ok.length;
+    el("#pa-go").textContent = ok.length ? `${ok.length}건 적용` : "적용";
+    return { rows, ok, c, at, mode };
+  };
+
+  ["#pa-course", "#pa-mode", "#pa-date"].forEach((x) => el(x).addEventListener("change", analyze));
+  el("#pa-text").addEventListener("input", analyze);
+
+  el("#pa-go").onclick = async (ev) => {
+    const r = analyze();
+    if (!r || !r.ok.length) return;
+    ev.target.disabled = true; ev.target.textContent = "처리 중…";
+    let done = 0;
+    try {
+      for (const row of r.ok) {
+        if (r.mode === "pay") {
+          await S.saveEnrollment(row.e.id, { status: "수강", paidAt: r.at });
+        } else if (row.refund) {
+          const startNo = row.e.startSession || 1;
+          await S.saveEnrollment(row.e.id, {
+            status: "환불",
+            refund: {
+              canceledAt: r.at,
+              type: C.refundTypeFor(C.sessionsTaken(r.c, r.at, startNo)),
+              bookKept: C.booksGiven(r.c, r.at),
+            },
+          });
+        } else {
+          await S.saveEnrollment(row.e.id, { status: "취소", canceledAt: r.at });
+        }
+        done++;
+      }
+      closeDrawer();
+      toast(`${done}건을 처리했습니다.`);
+    } catch (err) {
+      toast("처리하지 못했습니다: " + err.message);
+      ev.target.disabled = false; ev.target.textContent = "적용";
+    }
+  };
+  el("#pa-text").focus();
 }
 
 function addEnrollDrawer(preCourseId = courseFilter) {
@@ -1160,11 +1281,12 @@ export function viewRefunds() {
     <div>환불 예상액은 <b>전액</b>이면 총액 그대로, <b>N회수강</b>이면 총액에서 진행한 회차분 교습비와
     수령한 교재비를 뺀 값입니다. 실제 지급액은 원장님 결재 기준을 따르세요.</div></div>
   <section class="card"><div class="tbl-wrap">${rows.length ? `<table class="tbl">
-    <thead><tr><th>처리</th><th>취소일</th><th>기수</th><th>반</th><th>학번</th><th>성명</th><th>취소 강좌</th>
+    <thead><tr><th class="ctr">번호</th><th>처리</th><th>취소일</th><th>기수</th><th>반</th><th>학번</th><th>성명</th><th>취소 강좌</th>
       <th>환불유형</th><th>교재</th><th class="num">환불 예상액</th><th>최종환불일</th></tr></thead>
-    <tbody>${rows.map(({ e, c, s, amt }) => {
+    <tbody>${rows.map(({ e, c, s, amt }, idx) => {
       const done = !!e.refund?.settledAt;
       return `<tr${done ? ' style="opacity:.6"' : ""}>
+      <td class="ctr dim">${idx + 1}</td>
       <td><input type="checkbox" data-settle="${esc(e.id)}" ${done ? "checked" : ""}
         aria-label="환불 처리 완료" style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal)"></td>
       <td>${e.refund?.canceledAt ? C.fmt(e.refund.canceledAt) : '<span class="dim">-</span>'}</td>
@@ -1244,12 +1366,13 @@ export function viewWaitlist() {
     <div class="card-head"><h2>전체 대기 ${rows.length}건</h2>
       <span class="sub">안내 발송일을 입력하고, 결원이 생기면 배정하세요</span></div>
     <div class="tbl-wrap">${rows.length ? `<table class="tbl">
-      <thead><tr><th>등록시각</th><th>반</th><th>학번</th><th>이름</th><th>대기 강좌</th>
+      <thead><tr><th class="ctr">번호</th><th>등록시각</th><th>반</th><th>학번</th><th>이름</th><th>대기 강좌</th>
         <th>안내 발송</th><th>처리</th><th>비고</th><th></th></tr></thead>
-      <tbody>${rows.map((w) => {
+      <tbody>${rows.map((w, idx) => {
         const done = w.state === "배정";
         const opts = [...new Set([...WAIT_STATES, w.state].filter(Boolean))];
         return `<tr${done ? ' style="opacity:.6"' : ""}>
+        <td class="ctr dim">${idx + 1}</td>
         <td class="dim">${esc(String(w.registeredAt || "").slice(0, 16)) || "-"}</td>
         <td>${esc(w.classGroup) || "-"}</td><td class="dim">${esc(w.studentId)}</td>
         <td class="strong">${esc(w.name)}</td>
