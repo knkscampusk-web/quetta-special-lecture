@@ -816,7 +816,11 @@ function pasteDrawer() {
     const cid = el("#pa-course").value;
     const mode = el("#pa-mode").value;
     const at = el("#pa-date").value || today;
-    const nums = [...new Set((el("#pa-text").value.match(/\d{3,}/g) || []))];
+    // 같은 번호가 여러 번 나오면 그 횟수만큼 처리합니다 (한 기수에 2강좌 신청 등)
+    const raw = el("#pa-text").value.match(/\d{3,}/g) || [];
+    const tally = {};
+    raw.forEach((n) => { tally[n] = (tally[n] || 0) + 1; });
+    const nums = Object.keys(tally);
     if (!cid || !nums.length) {
       el("#pa-preview").innerHTML = nums.length
         ? '<p style="font-size:13px;color:var(--muted);margin:0">강좌를 선택하세요.</p>' : "";
@@ -826,61 +830,89 @@ function pasteDrawer() {
     const base = S.state.courses.find((x) => x.id === cid);
     const term = base?.term;
     const wanted = mode === "pay" ? ["신청"] : ["신청", "수강"];
+    const titleOf = (id) => S.state.courses.find((x) => x.id === id)?.title || id;
 
-    const rows = nums.map((n) => {
+    const rows = [];
+    nums.forEach((n) => {
+      const cnt = tally[n];
       const st = S.state.students.find((x) => String(x.examNo) === n)
         || S.state.students.find((x) => String(x.id) === n);
-      if (!st) return { n, note: "학생 없음", bad: true };
-
-      // 같은 기수에서 처리 가능한 이 학생의 다른 신청 건
-      const cands = S.state.enrollments.filter((x) => x.studentId === st.id
-        && x.term === term && wanted.includes(C.normStatus(x.status)));
-      const useId = picks[n] || cid;
-      const e = S.state.enrollments.find((x) => x.studentId === st.id && x.courseId === useId);
-      const others = cands.filter((x) => x.courseId !== useId);
-
-      if (!e) {
-        return cands.length
-          ? { n, st, cands, note: "이 강좌 신청 없음", bad: true, others: cands }
-          : { n, st, note: "이 강좌 신청 없음", bad: true };
+      if (!st) {
+        for (let i = 0; i < cnt; i++) rows.push({ key: `${n}#${i}`, n, note: "학생 없음", bad: true });
+        return;
       }
-      const cur = C.normStatus(e.status);
-      const c = S.state.courses.find((x) => x.id === useId);
-      const common = { n, st, e, c, others, useId };
-      if (mode === "pay") {
-        if (cur === "수강") return { ...common, note: "이미 수강", skip: true };
-        if (cur === "환불") return { ...common, note: "환불 건", bad: true };
-        return { ...common, note: `${cur} → 수강`, ok: true };
+      const inTerm = S.state.enrollments.filter((x) => x.studentId === st.id && x.term === term);
+      const pool = inTerm.filter((x) => wanted.includes(C.normStatus(x.status)));
+      const sel = inTerm.find((x) => x.courseId === cid);
+      const used = new Set();
+
+      for (let i = 0; i < cnt; i++) {
+        const key = `${n}#${i}`;
+        // 선택한 강좌에 이미 처리된 건이 있으면 그대로 알려 줍니다.
+        if (i === 0 && sel && !wanted.includes(C.normStatus(sel.status))) {
+          rows.push({ key, n, st, e: sel, c: base, cands: pool,
+                      note: `이미 ${C.normStatus(sel.status)}`, skip: true });
+          continue;
+        }
+        if (!pool.length) {
+          rows.push({ key, n, st, cands: [],
+                      note: inTerm.length ? "처리할 신청 없음" : "이 기수 신청 없음", bad: true });
+          continue;
+        }
+        let chosen = picks[key];
+        if (chosen && used.has(chosen)) chosen = null;
+        if (!chosen) {
+          const prefer = i === 0 && !used.has(cid) ? pool.find((x) => x.courseId === cid) : null;
+          chosen = (prefer || pool.find((x) => !used.has(x.courseId)))?.courseId || null;
+        }
+        if (!chosen) {
+          rows.push({ key, n, st, cands: pool, note: `신청 건이 ${cnt}개보다 적음`, bad: true });
+          continue;
+        }
+        used.add(chosen);
+        const e = pool.find((x) => x.courseId === chosen);
+        const cur = C.normStatus(e.status);
+        const other = chosen !== cid;
+        rows.push({
+          key, n, st, e, c: S.state.courses.find((x) => x.id === chosen), cands: pool,
+          useId: chosen, other,
+          note: mode === "pay" ? `${cur} → 수강` : (cur === "수강" ? "수강 → 환불" : "신청 → 취소"),
+          ok: true, refund: mode !== "pay" && cur === "수강",
+        });
       }
-      if (cur === "환불" || cur === "취소") return { ...common, note: `이미 ${cur}`, skip: true };
-      return { ...common, note: cur === "수강" ? "수강 → 환불" : "신청 → 취소",
-               ok: true, refund: cur === "수강" };
     });
     const ok = rows.filter((r) => r.ok);
+    const dupNums = nums.filter((n) => tally[n] > 1);
     el("#pa-preview").innerHTML = `
       <div class="log" style="font-size:13px;margin-bottom:10px">
-        <div><span>붙여넣은 번호</span><b>${nums.length}건</b></div>
+        <div><span>붙여넣은 번호</span><b>${raw.length}건 (학생 ${nums.length}명)</b></div>
+        ${rows.some((r) => r.other) ? `<div><span>다른 강좌로 연결</span><b style="color:var(--warn)">${
+          rows.filter((r) => r.other).length}건</b></div>` : ""}
         <div><span>처리 대상</span><b style="color:var(--teal-d)">${ok.length}건</b></div>
         <div><span>건너뜀</span><b>${rows.filter((r) => r.skip).length}건</b></div>
         <div><span>확인 필요</span><b ${rows.some((r) => r.bad) ? 'style="color:var(--danger)"' : ""}>${
           rows.filter((r) => r.bad).length}건</b></div>
       </div>
-      ${rows.some((r) => r.others?.length) ? `<div class="banner banner-warn" style="margin-bottom:10px">
+      ${rows.some((r) => r.other) ? `<div class="banner banner-warn" style="margin-bottom:10px">
         <i data-lucide="alert-triangle"></i>
-        <div>같은 기수에 다른 강좌도 신청한 학생이 있습니다. 어느 강좌를 결제했는지 확인하고, 다르면 아래에서 바꾸세요.</div></div>` : ""}
+        <div>선택한 강좌에 신청 내역이 없어 <b>같은 기수의 다른 강좌</b>로 연결한 건이 있습니다.
+        맞는지 확인하고 다르면 바꾸세요.</div></div>` : ""}
+      ${dupNums.length ? `<div class="banner banner-info" style="margin-bottom:10px">
+        <i data-lucide="info"></i>
+        <div>같은 번호가 여러 번 나온 학생(${esc(dupNums.join(", "))})은 <b>신청 건마다 한 줄씩</b> 나뉘어
+        서로 다른 강좌에 배정됩니다.</div></div>` : ""}
       <div class="tbl-wrap" style="max-height:260px;overflow:auto"><table class="tbl"><tbody>
         ${rows.map((r) => `<tr>
-          <td class="dim">${esc(r.n)}</td>
+          <td class="dim">${esc(r.n)}${tally[r.n] > 1 ? `<span class="dim" style="font-size:10px"> (${
+            Number(r.key.split("#")[1]) + 1}/${tally[r.n]})</span>` : ""}</td>
           <td class="strong">${esc(r.st?.name) || "-"}</td>
-          <td>${r.others?.length
-            ? `<select class="inp" style="padding:3px 7px;font-size:12px;max-width:200px" data-pick="${esc(r.n)}">
-                ${[...(r.e ? [r.e] : []), ...r.others].map((x) => {
-                  const cc = S.state.courses.find((y) => y.id === x.courseId);
-                  return `<option value="${esc(x.courseId)}" ${x.courseId === r.useId ? "selected" : ""}>${
-                    esc(cc?.title || x.courseId)} · ${esc(C.normStatus(x.status))}</option>`;
-                }).join("")}
-              </select>`
-            : `<span class="dim" style="font-size:12px">${esc(r.c?.title || "")}</span>`}</td>
+          <td>${(r.cands?.length > 1 || r.other)
+            ? `<select class="inp" style="padding:3px 7px;font-size:12px;max-width:210px" data-pick="${esc(r.key)}">
+                ${(r.cands || []).map((x) => `<option value="${esc(x.courseId)}" ${
+                  x.courseId === r.useId ? "selected" : ""}>${esc(titleOf(x.courseId))} · ${
+                  esc(C.normStatus(x.status))}</option>`).join("")}
+              </select>${r.other ? ' <span class="tag tag-warn">다른 강좌</span>' : ""}`
+            : `<span class="dim" style="font-size:12px">${esc(r.c ? titleOf(r.c.id) : "")}</span>`}</td>
           <td>${r.bad ? `<span class="tag tag-danger">${esc(r.note)}</span>`
             : r.skip ? `<span class="tag tag-neutral">${esc(r.note)}</span>`
             : `<span class="tag tag-ok">${esc(r.note)}</span>`}</td>
