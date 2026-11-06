@@ -1324,10 +1324,8 @@ export function viewRefunds() {
         || String(a.s?.name ?? "").localeCompare(String(b.s?.name ?? ""), "ko");
     });
 
-  const totalAmt = rows.reduce((a, r) => a + (r.amt || 0), 0);
   const full = rows.filter((r) => r.e.refund?.type === "전액").length;
   const settled = rows.filter((r) => r.e.refund?.settledAt).length;
-  const pendingAmt = rows.filter((r) => !r.e.refund?.settledAt).reduce((a, r) => a + (r.amt || 0), 0);
 
   host().innerHTML = `
   <div class="page-head">
@@ -1341,8 +1339,6 @@ export function viewRefunds() {
     <div class="kpi"><dt>전액 환불</dt><dd>${full}<small>건</small></dd></div>
     <div class="kpi"><dt>처리 완료</dt><dd>${settled}<small>건</small></dd></div>
     <div class="kpi ${rows.length - settled ? "alert" : ""}"><dt>미처리</dt><dd>${rows.length - settled}<small>건</small></dd></div>
-    <div class="kpi"><dt>미처리 금액</dt><dd style="font-size:19px">${C.won(pendingAmt)}</dd></div>
-    <div class="kpi"><dt>환불 예상액 합계</dt><dd style="font-size:19px">${C.won(totalAmt)}</dd></div>
   </dl>
   <div class="banner banner-info"><i data-lucide="info"></i>
     <div>환불 예상액은 <b>전액</b>이면 총액 그대로, <b>N회수강</b>이면 총액에서 진행한 회차분 교습비와
